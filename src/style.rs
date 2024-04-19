@@ -18,7 +18,7 @@ impl button::StyleSheet for MyButtonStyle {
             border: Border {
                 color: Color::BLACK,
                 width: 1.5,
-                radius: 7.5.into(),
+                radius: 6.into(),
             },
             shadow: Shadow::default(),
         }
@@ -32,7 +32,7 @@ impl button::StyleSheet for MyButtonStyle {
             border: Border {
                 color: Color::BLACK,
                 width: 1.5,
-                radius: 7.5.into(),
+                radius: 6.into(),
             },
             shadow: Shadow::default(),
         }
