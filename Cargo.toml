@@ -1,5 +1,5 @@
 [package]
-name = "rust-iced-example"
+name = "journey"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,4 +8,5 @@ edition = "2021"
 [dependencies]
 iced = "0.12.1"
 iced_core = "0.12.1"
+iced_aw="0.8.0"
 git2 = "0.18.3"

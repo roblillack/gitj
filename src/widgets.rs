@@ -10,7 +10,7 @@ use iced::{
 
 use crate::style;
 
-pub fn listbox<'a, Message>(content: impl Into<Element<'a, Message>>) -> Scrollable<'a, Message>
+pub fn scrollbox<'a, Message>(content: impl Into<Element<'a, Message>>) -> Scrollable<'a, Message>
 where
     Message: 'a + Clone,
 {

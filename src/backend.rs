@@ -18,6 +18,7 @@ impl From<git2::Error> for BackendError {
 pub struct Backend {
     pub path: String,
     pub repo: Repository,
+    pub messages: Vec<String>,
 }
 
 impl Debug for Backend {
@@ -42,20 +43,34 @@ impl Backend {
             });
         }
 
-        Ok(Backend {
-            path,
+        let b = Backend {
+            path: path.clone(),
+            messages: Vec::new(),
             repo: repo.unwrap(),
+        };
+
+        // TODO: OMG
+
+        Ok(Backend {
+            path: b.path,
+            messages: Vec::from_iter(
+                Self::log(&b.repo)
+                    .unwrap()
+                    .iter()
+                    .map(|x| x.message.clone()),
+            ),
+            repo: b.repo,
         })
     }
 
     // look at https://github.com/rust-lang/git2-rs/blob/master/examples/log.rs
-    pub fn log(&self) -> Result<Vec<Commit>, BackendError> {
-        let mut revwalk = self.repo.revwalk()?;
+    pub fn log(repo: &Repository) -> Result<Vec<Commit>, BackendError> {
+        let mut revwalk = repo.revwalk()?;
         let mut commits = Vec::new();
         revwalk.push_head()?;
         for commit_id in revwalk {
             let commit_id = commit_id?;
-            let commit = self.repo.find_commit(commit_id)?;
+            let commit = repo.find_commit(commit_id)?;
             println!("commit: {}", commit.id());
             println!("author: {}", commit.author());
             println!("message: {}", commit.message().unwrap_or_default());
