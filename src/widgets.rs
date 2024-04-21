@@ -1,7 +1,9 @@
+use std::borrow::Cow;
+
 use iced::{
     widget::{
         scrollable::{Alignment, Direction, Properties},
-        Button, Container, Scrollable,
+        Button, Container, Scrollable, Text,
     },
     Element, Padding,
 };
@@ -30,10 +32,17 @@ where
     ));
 }
 
-pub fn button<'a, Message>(content: impl Into<Element<'a, Message>>) -> Button<'a, Message> {
-    return Button::new(content)
-        .height(30)
-        .style(iced::theme::Button::Custom(Box::new(
-            style::MyButtonStyle {},
-        )));
+pub fn button<'a, Message>(content: impl Into<Cow<'a, str>>) -> Button<'a, Message> {
+    return Button::new(
+        Text::new(content)
+            .size(14)
+            .font(style::boldFont())
+            .horizontal_alignment(iced::alignment::Horizontal::Center)
+            .vertical_alignment(iced::alignment::Vertical::Center),
+    )
+    .height(30)
+    .padding(5)
+    .style(iced::theme::Button::Custom(Box::new(
+        style::MyButtonStyle {},
+    )));
 }

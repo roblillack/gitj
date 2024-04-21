@@ -3,7 +3,7 @@ use iced::widget::{
     button, checkbox, column, container, horizontal_rule, pick_list, progress_bar, row, scrollable,
     slider, text, text_input, toggler, vertical_rule, vertical_space, Button, Scrollable,
 };
-use iced::{font, Alignment, Element, Length, Sandbox, Settings, Theme};
+use iced::{font, Alignment, Element, Font, Length, Sandbox, Settings, Theme};
 
 mod style;
 mod widgets;
@@ -68,7 +68,7 @@ impl Sandbox for Styling {
         .height(100);
 
         let commit_selector = widgets::listbox(column![
-            text("repo: Don't use D_IGHOREBLANKS for diffreg"),
+            text("repo: Don't use D_IGNOREBLANKS for diffreg"),
             text("browser+committer: Improve Edit menu ops, add Cut+Paste in i"),
             text("browser: Only enable repo menu actions when committer is note"),
             text("committer: Move diff_line and diff_chunk into committer struc"),
@@ -91,71 +91,25 @@ impl Sandbox for Styling {
         ]
         .spacing(14);
 
-        let choose_theme = column![
-            text("Theme:"),
-            pick_list(Theme::ALL, Some(&self.theme), Message::ThemeChanged).width(Length::Fill),
-        ]
-        .spacing(10);
-
-        let text_input = text_input("Type something...", &self.input_value)
-            .on_input(Message::InputChanged)
-            .padding(10)
-            .size(10);
-
-        let button = Button::new("Submit")
-            .padding(10)
-            .on_press(Message::ButtonPressed);
-
-        let slider = slider(0.0..=100.0, self.slider_value, Message::SliderChanged);
-
-        let progress_bar = progress_bar(0.0..=100.0, self.slider_value);
-
-        let scrollable123 = scrollable(column![
-            "Scroll me!",
-            vertical_space().height(800),
-            "You did it!"
-        ])
-        .width(Length::Fill)
-        .height(95);
-
-        let checkbox =
-            checkbox("Check me!", self.checkbox_value).on_toggle(Message::CheckboxToggled);
-
-        let toggler = toggler(
-            String::from("Toggle me!"),
-            self.toggler_value,
-            Message::TogglerToggled,
-        )
-        .width(Length::Shrink)
-        .spacing(10);
-
         let content = column![
             top,
-            choose_theme,
-            horizontal_rule(38),
-            row![text_input, button]
-                .spacing(10)
-                .align_items(Alignment::Center),
-            slider,
-            progress_bar,
-            row![
-                scrollable123,
-                vertical_rule(38),
-                column![checkbox, toggler].spacing(20)
-            ]
-            .spacing(14)
-            .height(100)
-            .align_items(Alignment::Center),
+            widgets::listbox(column![
+                "Scroll me!",
+                vertical_space().height(800),
+                "You did it!"
+            ])
+            .width(Length::Fill)
+            .height(255)
         ]
-        .spacing(20)
-        .padding(14)
-        .max_width(600);
+        .spacing(14)
+        .padding(14);
+        // .max_width(600);
 
         container(content)
             .width(Length::Fill)
             .height(Length::Fill)
-            .center_x()
-            .center_y()
+            // .center_x()
+            // .center_y()
             .style(iced::theme::Container::Custom(Box::new(
                 style::MyButtonStyle {},
             )))

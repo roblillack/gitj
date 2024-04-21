@@ -1,7 +1,7 @@
 use iced::{
     border::Radius,
     widget::{button, container, scrollable},
-    Border, Color, Shadow, Theme, Vector,
+    Border, Color, Font, Shadow, Theme, Vector,
 };
 
 #[derive(Default, Debug, Clone)]
@@ -122,4 +122,13 @@ impl container::StyleSheet for MyButtonStyle {
             text_color: Some(Color::BLACK),
         }
     }
+}
+
+pub fn boldFont() -> Font {
+    return Font {
+        family: iced::font::Family::SansSerif,
+        weight: iced::font::Weight::Bold,
+        stretch: iced::font::Stretch::Normal,
+        style: iced::font::Style::Normal,
+    };
 }
