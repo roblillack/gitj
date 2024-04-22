@@ -71,7 +71,10 @@ impl Sandbox for State {
     }
 
     fn title(&self) -> String {
-        String::from("Journey: amend.repo")
+        match &self.repo {
+            Some(r) => format!("Journey: {}", r.path),
+            None => String::from("Journey"),
+        }
     }
 
     fn update(&mut self, message: Message) {
