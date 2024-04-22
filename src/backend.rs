@@ -42,24 +42,12 @@ impl Backend {
                 message: format!("Failed to open repository: {}", error.message()),
             });
         }
-
-        let b = Backend {
-            path: path.clone(),
-            messages: Vec::new(),
-            repo: repo.unwrap(),
-        };
-
-        // TODO: OMG
+        let repo = repo.unwrap();
 
         Ok(Backend {
-            path: b.path,
-            messages: Vec::from_iter(
-                Self::log(&b.repo)
-                    .unwrap()
-                    .iter()
-                    .map(|x| x.message.clone()),
-            ),
-            repo: b.repo,
+            path,
+            messages: Vec::from_iter(Self::log(&repo).unwrap().iter().map(|x| x.message.clone())),
+            repo,
         })
     }
 
