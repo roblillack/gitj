@@ -7,6 +7,7 @@ use iced::widget::{
 };
 use iced::{font, Alignment, Element, Font, Length, Sandbox, Settings, Theme};
 use iced_aw::{SelectionList, SelectionListStyles};
+use style::DEFAULT_FONT_SIZE;
 
 mod backend;
 mod style;
@@ -95,7 +96,7 @@ impl Sandbox for State {
                 &self.empty_message
             },
             Message::CommitSelected,
-            12.0,
+            DEFAULT_FONT_SIZE,
             5.0,
             SelectionListStyles::Default,
             self.selected_commit,

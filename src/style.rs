@@ -7,6 +7,8 @@ use iced::{
 #[derive(Default, Debug, Clone)]
 pub struct MyButtonStyle {}
 
+pub const DEFAULT_FONT_SIZE: f32 = 16.0;
+
 impl button::StyleSheet for MyButtonStyle {
     type Style = Theme;
 
