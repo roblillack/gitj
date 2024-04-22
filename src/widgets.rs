@@ -36,7 +36,7 @@ pub fn button<'a, Message>(content: impl Into<Cow<'a, str>>) -> Button<'a, Messa
     return Button::new(
         Text::new(content)
             .size(14)
-            .font(style::boldFont())
+            .font(style::bold_font())
             .horizontal_alignment(iced::alignment::Horizontal::Center)
             .vertical_alignment(iced::alignment::Vertical::Center),
     )

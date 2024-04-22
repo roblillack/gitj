@@ -126,7 +126,7 @@ impl container::StyleSheet for MyButtonStyle {
     }
 }
 
-pub fn boldFont() -> Font {
+pub fn bold_font() -> Font {
     return Font {
         family: iced::font::Family::SansSerif,
         weight: iced::font::Weight::Bold,
