@@ -51,6 +51,37 @@ impl Backend {
         })
     }
 
+    pub fn changed_files(&self, idx: usize) -> Vec<String> {
+        let log = Self::log(&self.repo);
+        match log {
+            Err(error) => {
+                eprintln!("Failed to get log: {}", error.message);
+                return vec!["Failed to get log".to_string()];
+            }
+            Ok(commits) => match commits.get(idx) {
+                None => vec!["Commit not found".to_string()],
+                Some(commit) => {
+                    let real = self.repo.find_commit(commit.id.parse().unwrap()).unwrap();
+                    let diff = self.repo.diff_tree_to_tree(
+                        Some(&real.tree().unwrap()),
+                        Some(&real.parents().next().unwrap().tree().unwrap()),
+                        None,
+                    );
+                    let mut files = Vec::new();
+                    // println!("Diff: {:?}", diff);
+                    diff.unwrap()
+                        .print(git2::DiffFormat::Patch, |_delta, _hunk, line| {
+                            println!("Line: {:?}", line);
+                            files.push(line.origin().to_string());
+                            true
+                        })
+                        .unwrap();
+                    files
+                }
+            },
+        }
+    }
+
     // look at https://github.com/rust-lang/git2-rs/blob/master/examples/log.rs
     pub fn log(repo: &Repository) -> Result<Vec<Commit>, BackendError> {
         let mut revwalk = repo.revwalk()?;

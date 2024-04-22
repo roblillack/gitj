@@ -5,10 +5,10 @@ use iced::{
         scrollable::{Alignment, Direction, Properties},
         Button, Container, Scrollable, Text,
     },
-    Element, Padding,
+    Element, Font, Padding,
 };
 
-use crate::style;
+use crate::style::{self, DEFAULT_FONT_SIZE, SCROLLBAR_WIDTH};
 
 pub fn scrollbox<'a, Message>(content: impl Into<Element<'a, Message>>) -> Scrollable<'a, Message>
 where
@@ -16,7 +16,7 @@ where
 {
     return Scrollable::new(Container::new(content).padding(Padding {
         top: 3.0,
-        right: 20. + 5.,
+        right: SCROLLBAR_WIDTH as f32 + 5.,
         bottom: 3.,
         left: 5.,
     }))
@@ -25,9 +25,9 @@ where
     )))
     .direction(Direction::Vertical(
         Properties::new()
-            .width(20)
+            .width(SCROLLBAR_WIDTH)
             .margin(0)
-            .scroller_width(20)
+            .scroller_width(SCROLLBAR_WIDTH)
             .alignment(Alignment::Start),
     ));
 }
@@ -35,7 +35,8 @@ where
 pub fn button<'a, Message>(content: impl Into<Cow<'a, str>>) -> Button<'a, Message> {
     return Button::new(
         Text::new(content)
-            .size(14)
+            .size(DEFAULT_FONT_SIZE)
+            // .font(Font::DEFAULT)
             .font(style::bold_font())
             .horizontal_alignment(iced::alignment::Horizontal::Center)
             .vertical_alignment(iced::alignment::Vertical::Center),

@@ -7,7 +7,9 @@ use iced::{
 #[derive(Default, Debug, Clone)]
 pub struct MyButtonStyle {}
 
-pub const DEFAULT_FONT_SIZE: f32 = 16.0;
+pub const DEFAULT_FONT_SIZE: f32 = 15.0;
+pub const DEFAULT_WIDGET_SPACING: u16 = 14;
+pub const SCROLLBAR_WIDTH: u16 = 20;
 
 impl button::StyleSheet for MyButtonStyle {
     type Style = Theme;
@@ -128,9 +130,7 @@ impl container::StyleSheet for MyButtonStyle {
 
 pub fn bold_font() -> Font {
     return Font {
-        family: iced::font::Family::SansSerif,
         weight: iced::font::Weight::Bold,
-        stretch: iced::font::Stretch::Normal,
-        style: iced::font::Style::Normal,
+        ..Font::DEFAULT
     };
 }

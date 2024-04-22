@@ -7,14 +7,23 @@ use iced::widget::{
 };
 use iced::{font, Alignment, Element, Font, Length, Sandbox, Settings, Theme};
 use iced_aw::{SelectionList, SelectionListStyles};
-use style::DEFAULT_FONT_SIZE;
+use style::{bold_font, DEFAULT_FONT_SIZE, DEFAULT_WIDGET_SPACING};
 
 mod backend;
 mod style;
 mod widgets;
 
 pub fn main() -> iced::Result {
-    State::run(Settings::default())
+    State::run(Settings {
+        window: iced::window::Settings {
+            size: iced::Size {
+                width: 3. * DEFAULT_WIDGET_SPACING as f32 + 550. + 160.,
+                height: 3. * DEFAULT_WIDGET_SPACING as f32 + 144. + 255.,
+            },
+            ..Default::default()
+        },
+        ..Settings::default()
+    })
 }
 
 #[derive(Default)]
@@ -27,6 +36,9 @@ struct State {
     repo: Option<Backend>,
     selected_commit: Option<usize>,
     empty_message: Vec<String>,
+    // ----
+    commit_messages: Vec<String>,
+    changed_files: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -68,9 +80,20 @@ impl Sandbox for State {
             Message::ThemeChanged(theme) => {
                 self.theme = theme;
             }
-            Message::CommitSelected(idx, _) => self.selected_commit = Some(idx),
+            Message::CommitSelected(idx, _) => {
+                self.selected_commit = Some(idx);
+                if let Some(r) = &self.repo {
+                    self.changed_files = r.changed_files(idx);
+                }
+            }
             Message::InputChanged(value) => self.input_value = value,
-            Message::ButtonPressed => {}
+            Message::ButtonPressed => {
+                if self.repo.is_some() {
+                    self.repo = None;
+                } else {
+                    self.update(self.open_repo());
+                };
+            }
             Message::SliderChanged(value) => self.slider_value = value,
             Message::CheckboxToggled(value) => self.checkbox_value = value,
             Message::TogglerToggled(value) => self.toggler_value = value,
@@ -78,16 +101,17 @@ impl Sandbox for State {
     }
 
     fn view(&self) -> Element<Message> {
-        let file_selector = widgets::scrollbox(column![
-            "[All files]",
-            "amend.π.r",
-            "amend.h",
-            "browser.c",
-            "browser.h",
-            vertical_space().height(200),
-        ])
-        .width(160)
-        .height(100);
+        let file_selector = SelectionList::new_with(
+            &self.changed_files,
+            Message::CommitSelected,
+            DEFAULT_FONT_SIZE,
+            3.0,
+            SelectionListStyles::Default,
+            self.selected_commit,
+            Font::DEFAULT,
+        )
+        .width(iced::Length::FillPortion(160))
+        .height(iced::Length::Fixed(100.));
 
         let commit_selector = SelectionList::new_with(
             if let Some(b) = &self.repo {
@@ -97,13 +121,13 @@ impl Sandbox for State {
             },
             Message::CommitSelected,
             DEFAULT_FONT_SIZE,
-            5.0,
+            3.0,
             SelectionListStyles::Default,
             self.selected_commit,
-            Font::default(),
+            Font::DEFAULT,
         )
-        .width(iced::Length::Fixed(550.))
-        .height(iced::Length::Fixed(144.));
+        .width(iced::Length::FillPortion(550))
+        .height(iced::Length::Fill);
 
         let top = row![
             column![
@@ -113,23 +137,24 @@ impl Sandbox for State {
                     .height(30)
                     .on_press(Message::ButtonPressed)
             ]
-            .spacing(14),
+            .spacing(DEFAULT_WIDGET_SPACING)
+            .height(iced::Length::Fill),
             commit_selector
         ]
-        .spacing(14);
+        .spacing(DEFAULT_WIDGET_SPACING);
 
         let content = column![
-            top,
+            top.height(Length::FillPortion(144)),
             widgets::scrollbox(column![
                 "Scroll me!",
                 vertical_space().height(800),
                 "You did it!"
             ])
             .width(Length::Fill)
-            .height(255)
+            .height(Length::FillPortion(255)),
         ]
-        .spacing(14)
-        .padding(14);
+        .spacing(DEFAULT_WIDGET_SPACING)
+        .padding(DEFAULT_WIDGET_SPACING);
         // .max_width(600);
 
         container(content)
