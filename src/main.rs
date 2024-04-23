@@ -8,6 +8,7 @@ use iced::widget::{
 use iced::{font, Alignment, Element, Font, Length, Sandbox, Settings, Theme};
 use iced_aw::{SelectionList, SelectionListStyles};
 use style::{bold_font, DEFAULT_FONT_SIZE, DEFAULT_WIDGET_SPACING};
+use widgets::listbox;
 
 mod backend;
 mod style;
@@ -104,30 +105,22 @@ impl Sandbox for State {
     }
 
     fn view(&self) -> Element<Message> {
-        let file_selector = SelectionList::new_with(
+        let file_selector = widgets::listbox(
             &self.changed_files,
             Message::CommitSelected,
-            DEFAULT_FONT_SIZE,
-            3.0,
-            SelectionListStyles::Default,
             self.selected_commit,
-            Font::DEFAULT,
         )
         .width(iced::Length::FillPortion(160))
         .height(iced::Length::Fixed(100.));
 
-        let commit_selector = SelectionList::new_with(
+        let commit_selector = widgets::listbox(
             if let Some(b) = &self.repo {
                 &b.messages
             } else {
                 &self.empty_message
             },
             Message::CommitSelected,
-            DEFAULT_FONT_SIZE,
-            3.0,
-            SelectionListStyles::Default,
             self.selected_commit,
-            Font::DEFAULT,
         )
         .width(iced::Length::FillPortion(550))
         .height(iced::Length::Fill);

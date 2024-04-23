@@ -5,7 +5,7 @@ use iced::{
 };
 
 #[derive(Default, Debug, Clone)]
-pub struct MyButtonStyle {}
+pub struct MyButtonStyle;
 
 pub const DEFAULT_FONT_SIZE: f32 = 15.0;
 pub const DEFAULT_WIDGET_SPACING: u16 = 14;

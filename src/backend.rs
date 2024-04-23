@@ -68,14 +68,27 @@ impl Backend {
                         None,
                     );
                     let mut files = Vec::new();
+                    if let Ok(diff) = &diff {
+                        diff.deltas().for_each(|d| {
+                            let old_file =
+                                d.new_file().path().unwrap().to_str().unwrap().to_string();
+                            let new_file =
+                                d.new_file().path().unwrap().to_str().unwrap().to_string();
+                            if old_file != new_file {
+                                files.push(new_file);
+                            }
+                            files.push(old_file);
+                        });
+                    }
+
                     // println!("Diff: {:?}", diff);
-                    diff.unwrap()
-                        .print(git2::DiffFormat::Patch, |_delta, _hunk, line| {
-                            println!("Line: {:?}", line);
-                            files.push(line.origin().to_string());
-                            true
-                        })
-                        .unwrap();
+                    // diff.unwrap()
+                    //     .print(git2::DiffFormat::Patch, |_delta, _hunk, line| {
+                    //         // println!("Line: {:?}", line);
+                    //         files.push(line.origin().to_string());
+                    //         true
+                    //     })
+                    //     .unwrap();
                     files
                 }
             },
@@ -90,9 +103,9 @@ impl Backend {
         for commit_id in revwalk {
             let commit_id = commit_id?;
             let commit = repo.find_commit(commit_id)?;
-            println!("commit: {}", commit.id());
-            println!("author: {}", commit.author());
-            println!("message: {}", commit.message().unwrap_or_default());
+            // println!("commit: {}", commit.id());
+            // println!("author: {}", commit.author());
+            // println!("message: {}", commit.message().unwrap_or_default());
             commits.push(Commit {
                 id: commit.id().to_string(),
                 author: commit.author().name().unwrap_or_default().to_string(),
