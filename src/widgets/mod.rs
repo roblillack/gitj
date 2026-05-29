@@ -1,8 +1,5 @@
-mod button;
-pub use button::button;
+//! Git-specific widgets layered on top of retrogui's generic set.
 
-mod listbox;
-pub use listbox::listbox;
+mod shared;
 
-mod scrollbox;
-pub use scrollbox::scrollbox;
+pub use shared::Shared;

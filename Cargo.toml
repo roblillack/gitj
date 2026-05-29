@@ -1,12 +1,24 @@
 [package]
 name = "journey"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+# A gitk-style repository browser built on the retrogui toolkit.
+# See ../retrofetch/retrogui for the GUI library.
 
 [dependencies]
-iced = "0.12.1"
-iced_core = "0.12.3"
-iced_aw="0.8.0"
-git2 = "0.18.3"
+retrogui = { path = "../retrofetch/retrogui" }
+git2 = { version = "0.18", default-features = false }
+
+[dev-dependencies]
+insta = "1"
+
+# The library half (backend + widgets + ui) is what the snapshot tests in
+# tests/ link against; main.rs is the thin binary on top of it.
+[lib]
+name = "journey"
+path = "src/lib.rs"
+
+[[bin]]
+name = "journey"
+path = "src/main.rs"
