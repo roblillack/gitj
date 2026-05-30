@@ -26,7 +26,13 @@ fn main() -> ExitCode {
     };
 
     let title = format!("Journey — {}", backend.path());
-    let root = GitClient::new(backend);
+    // File ▸ Reload re-discovers the repository at the same path.
+    let reload_path = path.clone();
+    let root = GitClient::new(backend).with_reopen(Box::new(move || {
+        Git2Backend::open(&reload_path)
+            .ok()
+            .map(|b| Rc::new(b) as Rc<dyn RepoBackend>)
+    }));
 
     App::new(
         WindowConfig::new(title, WINDOW_W, WINDOW_H).resizable(true),

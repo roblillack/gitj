@@ -69,8 +69,8 @@ fn main_screen_files_synced() {
     );
 }
 
-/// Select the second commit, then click the second file row: the diff pane
-/// narrows to just that file's diff.
+/// Select the second commit, then click the second file row (the files pane
+/// is bottom-right): the diff pane narrows to just that file's diff.
 #[test]
 fn main_screen_file_diff() {
     snapshot_at_all_scales_with_events(
@@ -81,9 +81,22 @@ fn main_screen_file_diff() {
         || {
             vec![
                 key(NamedKey::Down), // commit list -> second commit (two files)
-                click(30, 224),      // file list row 1 (src/main.rs)
+                click(500, 293),     // files pane row 1 (src/main.rs)
             ]
         },
+    );
+}
+
+/// Click the "File" label in the menu bar to drop its menu (the first item is
+/// pre-highlighted), exercising menu-bar + popup compositing in the shell.
+#[test]
+fn main_screen_menu_open() {
+    snapshot_at_all_scales_with_events(
+        "main_screen_menu_open",
+        W,
+        H,
+        || Box::new(sample_client()),
+        || vec![click(16, 10)],
     );
 }
 
@@ -97,9 +110,35 @@ fn main_screen_filtered() {
         H,
         || Box::new(sample_client()),
         || {
-            let mut events = vec![click(200, 13)]; // focus the search field
+            let mut events = vec![click(200, 33)]; // focus the search field (below the menu)
             events.extend(type_text("rename"));
             events
+        },
+    );
+}
+
+/// Open the Help menu with Alt+H, highlight and fire About with Down+Enter:
+/// the modal About dialog floats over the shell. Exercises menu accelerators,
+/// the command-free dialog callback, and the overlay compositing path.
+#[test]
+fn main_screen_about_dialog() {
+    snapshot_at_all_scales_with_events(
+        "main_screen_about_dialog",
+        W,
+        H,
+        || Box::new(sample_client()),
+        || {
+            vec![
+                Event::KeyDown {
+                    key: Key::Char('h'),
+                    modifiers: Modifiers {
+                        alt: true,
+                        ..Modifiers::default()
+                    },
+                },
+                key(NamedKey::Down),
+                key(NamedKey::Enter),
+            ]
         },
     );
 }

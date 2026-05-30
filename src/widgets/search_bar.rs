@@ -31,6 +31,11 @@ impl SearchBar {
         self.input.text()
     }
 
+    /// Clear the query.
+    pub fn clear(&mut self) {
+        self.input.set_text("");
+    }
+
     fn relayout(&mut self) {
         let x = self.bounds.x + LABEL_W;
         let input_rect = Rect::new(

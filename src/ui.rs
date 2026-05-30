@@ -1,40 +1,58 @@
 //! The top-level [`GitClient`] widget.
 //!
-//! `GitClient` wraps a retrogui [`Column`] as its layout / focus / event
-//! engine and keeps shared handles to the panes it needs to coordinate. After
-//! each event it polls the commit list's selection and, when it changes,
-//! reloads the file list from the backend — the cross-pane wiring retrogui's
-//! callback-free widgets don't provide on their own.
+//! `GitClient` wraps a [`Panes`] shell (the gitk-style flat layout) as its
+//! layout / focus / event engine and keeps shared handles to the panes it
+//! needs to coordinate. After each event it polls selections and, when they
+//! change, reloads dependent panes from the backend — the cross-pane wiring
+//! retrogui's callback-free widgets don't provide on their own.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use retrogui::{
-    Color, Column, Event, EventCtx, List, ListItem, Painter, PopupRequest, Rect, Theme, Widget,
+    Dialog, Event, EventCtx, List, ListItem, Menu, MenuBar, MenuItem, Painter, PopupRequest, Rect,
+    Theme, Widget,
 };
 
 use crate::backend::{CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, RepoBackend};
-use crate::widgets::{CommitList, CommitRow, DiffView, SearchBar, Shared};
+use crate::widgets::{CommitList, CommitRow, DiffView, Pane, Panes, SearchBar, Shared};
 
-/// Height of the search bar at the top of the window.
+/// Height of the menu bar.
+const MENU_H: i32 = 20;
+/// Height of the search bar below the menu.
 const SEARCH_H: i32 = 26;
-/// Height of the changed-files pane between the commit list and the diff.
-const FILE_PANE_H: i32 = 130;
-/// Index of the commit list among the column's children (search bar is 0).
-const COMMIT_CHILD: usize = 1;
+/// Width of the changed-files pane on the lower right.
+const FILES_W: i32 = 300;
+
+/// A closure that re-opens the repository (used by File ▸ Reload). `None` for
+/// fixture-backed clients in tests.
+type ReopenFn = Box<dyn Fn() -> Option<Rc<dyn RepoBackend>>>;
+
+/// Deferred actions menu callbacks request; drained by `GitClient` after
+/// event dispatch so they can mutate state the callbacks can't reach.
+#[derive(Clone, Copy)]
+enum AppCommand {
+    Reload,
+}
 
 pub struct GitClient {
-    /// retrogui layout/event engine; owns the actual widget tree.
-    root: Column,
+    /// Flat layout/event engine; owns the actual widget tree.
+    root: Panes,
     backend: Rc<dyn RepoBackend>,
     /// Shared handle to the search/filter bar.
     search: Rc<RefCell<SearchBar>>,
-    /// Shared handle to the commit list (also owned by `root` via `Shared`).
+    /// Shared handle to the commit list.
     commit_list: Rc<RefCell<CommitList>>,
     /// Shared handle to the changed-files list.
     file_list: Rc<RefCell<List>>,
     /// Shared handle to the diff pane.
     diff_view: Rc<RefCell<DiffView>>,
+    /// Shared handle to the modal dialog overlay (About, errors).
+    dialog: Rc<RefCell<Dialog>>,
+    /// Queue menu callbacks push into; drained after each event.
+    commands: Rc<RefCell<Vec<AppCommand>>>,
+    /// Re-open hook for File ▸ Reload.
+    reopen: Option<ReopenFn>,
     /// Backend commit indices currently shown in the list, in row order. The
     /// search filter narrows this; an empty query shows every commit.
     visible: Vec<usize>,
@@ -55,14 +73,23 @@ impl GitClient {
         let commit_list = Rc::new(RefCell::new(CommitList::new(Rect::new(0, 0, 0, 0))));
         let file_list = Rc::new(RefCell::new(List::new(Rect::new(0, 0, 0, 0))));
         let diff_view = Rc::new(RefCell::new(DiffView::new(Rect::new(0, 0, 0, 0))));
+        let dialog = Rc::new(RefCell::new(Dialog::new()));
+        let commands: Rc<RefCell<Vec<AppCommand>>> = Rc::new(RefCell::new(Vec::new()));
 
-        // Child order must match the COMMIT_CHILD index above.
-        let root = Column::new()
-            .with_background(Color::LIGHT_GRAY)
-            .add_fixed(Shared::new(search.clone()), SEARCH_H)
-            .add_fill(Shared::new(commit_list.clone()))
-            .add_fixed(Shared::new(file_list.clone()), FILE_PANE_H)
-            .add_fill(Shared::new(diff_view.clone()));
+        let menu_bar = build_menu_bar(commands.clone(), dialog.clone());
+
+        // Add order sets keyboard focus order: search → commits → diff →
+        // files (the menu bar isn't focusable, it works via accelerators).
+        let root = Panes::new()
+            .menu_height(MENU_H)
+            .toolbar_height(SEARCH_H)
+            .files_width(FILES_W)
+            .add(Pane::Menu, menu_bar)
+            .add(Pane::Toolbar, Shared::new(search.clone()))
+            .add(Pane::History, Shared::new(commit_list.clone()))
+            .add(Pane::Diff, Shared::new(diff_view.clone()))
+            .add(Pane::Files, Shared::new(file_list.clone()))
+            .add_overlay(Shared::new(dialog.clone()));
 
         let mut client = Self {
             root,
@@ -71,6 +98,9 @@ impl GitClient {
             commit_list,
             file_list,
             diff_view,
+            dialog,
+            commands,
+            reopen: None,
             visible: Vec::new(),
             last_query: String::new(),
             current_files: Vec::new(),
@@ -79,6 +109,45 @@ impl GitClient {
         };
         client.sync(true);
         client
+    }
+
+    /// Install the repository re-open hook used by File ▸ Reload.
+    pub fn with_reopen(mut self, reopen: ReopenFn) -> Self {
+        self.reopen = Some(reopen);
+        self
+    }
+
+    /// Apply any queued menu commands. Returns `true` if state changed.
+    fn drain_commands(&mut self) -> bool {
+        let pending: Vec<AppCommand> = self.commands.borrow_mut().drain(..).collect();
+        let mut changed = false;
+        for command in pending {
+            match command {
+                AppCommand::Reload => changed |= self.reload(),
+            }
+        }
+        changed
+    }
+
+    /// Re-open the repository and rebuild every pane. No-op without a reopen
+    /// hook (e.g. fixture-backed clients).
+    fn reload(&mut self) -> bool {
+        let Some(reopen) = &self.reopen else {
+            return false;
+        };
+        let Some(backend) = reopen() else {
+            self.dialog
+                .borrow_mut()
+                .show_error("Reload failed", "Could not re-open the repository.");
+            return true;
+        };
+        self.backend = backend;
+        self.shown_commit = None;
+        self.shown_file = None;
+        self.last_query.clear();
+        self.search.borrow_mut().clear();
+        self.sync(true);
+        true
     }
 
     /// Reload dependent panes from the current selection state. When the
@@ -237,8 +306,11 @@ impl Widget for GitClient {
 
     fn event(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.root.event(event, ctx);
-        // After the tree has processed the event, sync dependent panes.
-        if self.sync(false) {
+        // After the tree has processed the event, apply menu commands and
+        // sync dependent panes.
+        let mut dirty = self.drain_commands();
+        dirty |= self.sync(false);
+        if dirty {
             ctx.request_paint();
         }
     }
@@ -255,10 +327,6 @@ impl Widget for GitClient {
         self.root.set_focused(focused);
     }
 
-    fn accepts_accelerators(&self) -> bool {
-        self.root.accepts_accelerators()
-    }
-
     fn layout(&mut self, bounds: Rect) {
         self.root.layout(bounds);
     }
@@ -266,7 +334,7 @@ impl Widget for GitClient {
     fn focus_first(&mut self) -> bool {
         // Start on the commit list rather than the leading search field, so
         // arrow keys navigate history immediately (gitk behavior).
-        self.root.focus_child(COMMIT_CHILD)
+        self.root.focus_pane(Pane::History)
     }
 
     fn popup_request(&self) -> Option<PopupRequest> {
@@ -276,6 +344,43 @@ impl Widget for GitClient {
     fn wants_ticks(&self) -> bool {
         self.root.wants_ticks()
     }
+}
+
+/// Build the File / View / Help menu bar. Reload is deferred to the command
+/// queue (it must rebuild panes the callback can't reach); Exit closes the
+/// window directly; About pops the shared dialog.
+fn build_menu_bar(
+    commands: Rc<RefCell<Vec<AppCommand>>>,
+    dialog: Rc<RefCell<Dialog>>,
+) -> MenuBar {
+    MenuBar::new(Rect::new(0, 0, 0, 0))
+        .add_menu(Menu::new(
+            "&File",
+            vec![
+                MenuItem::action("&Reload", {
+                    let commands = commands.clone();
+                    move |cx| {
+                        commands.borrow_mut().push(AppCommand::Reload);
+                        cx.request_paint();
+                    }
+                }),
+                MenuItem::separator(),
+                MenuItem::action("E&xit", |cx| cx.close()),
+            ],
+        ))
+        .add_menu(Menu::new(
+            "&Help",
+            vec![MenuItem::action("&About", {
+                let dialog = dialog.clone();
+                move |cx| {
+                    dialog.borrow_mut().show_info(
+                        "About Journey",
+                        "Journey\n\nA gitk-style repository browser\nbuilt on the retrogui toolkit.",
+                    );
+                    cx.request_paint();
+                }
+            })],
+        ))
 }
 
 /// Build a commit-list row from a commit: ref badges + summary on the left,

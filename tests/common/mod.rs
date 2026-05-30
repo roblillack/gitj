@@ -67,9 +67,11 @@ fn snapshot_one(
         .with_mono_font(mono_font());
 
     if !events.is_empty() {
-        // Lay out once at the logical size so hit-testing / scroll math line
-        // up with what the live runtime would produce, then dispatch.
-        widget.layout(retrogui::Rect::new(0, 0, width, height));
+        // Warm-up render: lays out at the logical size and paints once, so
+        // widgets that cache geometry during paint (e.g. a MenuBar's label
+        // rects) are ready for hit-testing — exactly the state the live app
+        // is in before the user's first input. Then focus and dispatch.
+        let _ = backend.render(widget.as_mut());
         widget.focus_first();
         for event in events {
             backend.dispatch(widget.as_mut(), event);
