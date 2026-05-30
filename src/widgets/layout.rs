@@ -12,7 +12,7 @@ use retrogui::Rect;
 pub const MENU_H: i32 = 20;
 /// Height of the search toolbar below the menu.
 pub const TOOLBAR_H: i32 = 26;
-/// Width of the changed-files pane on the lower right.
+/// Width of the changed-files pane on the lower left.
 pub const FILES_W: i32 = 300;
 /// Fraction of the content height given to the history pane.
 pub const HISTORY_FRAC: f32 = 0.46;
@@ -32,16 +32,16 @@ pub fn browse_history(b: Rect) -> Rect {
     Rect::new(b.x, content_y, b.w, history_h)
 }
 
-pub fn browse_diff(b: Rect) -> Rect {
-    let (lower_y, lower_h) = lower_band(b);
-    let files_w = clamp_files_w(b);
-    Rect::new(b.x, lower_y, (b.w - files_w).max(0), lower_h)
-}
-
 pub fn browse_files(b: Rect) -> Rect {
     let (lower_y, lower_h) = lower_band(b);
     let files_w = clamp_files_w(b);
-    Rect::new(b.x + (b.w - files_w).max(0), lower_y, files_w, lower_h)
+    Rect::new(b.x, lower_y, files_w, lower_h)
+}
+
+pub fn browse_diff(b: Rect) -> Rect {
+    let (lower_y, lower_h) = lower_band(b);
+    let files_w = clamp_files_w(b);
+    Rect::new(b.x + files_w, lower_y, (b.w - files_w).max(0), lower_h)
 }
 
 fn lower_band(b: Rect) -> (i32, i32) {
