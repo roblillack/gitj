@@ -42,6 +42,8 @@ pub enum ChangeStatus {
     Renamed,
     Copied,
     TypeChange,
+    /// A file present in the working tree but not tracked by git.
+    Untracked,
     Other,
 }
 
@@ -55,6 +57,7 @@ impl ChangeStatus {
             ChangeStatus::Renamed => 'R',
             ChangeStatus::Copied => 'C',
             ChangeStatus::TypeChange => 'T',
+            ChangeStatus::Untracked => '?',
             ChangeStatus::Other => '?',
         }
     }
@@ -131,6 +134,29 @@ impl Diff {
     }
 }
 
+/// A snapshot of the working tree for commit mode (à la `git gui`).
+///
+/// A file can appear in *both* lists when it is partially staged: its
+/// index differs from `HEAD` (staged) *and* its working copy differs from
+/// the index (unstaged).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WorkingStatus {
+    /// Files whose working-tree copy differs from the index (not yet staged),
+    /// plus untracked files. Maps to `git diff` / the upper "Unstaged Changes"
+    /// list.
+    pub unstaged: Vec<FileChange>,
+    /// Files whose index differs from `HEAD` (staged for the next commit).
+    /// Maps to `git diff --cached` / the "Staged Changes" list.
+    pub staged: Vec<FileChange>,
+}
+
+impl WorkingStatus {
+    /// Nothing changed in the working tree or the index.
+    pub fn is_clean(&self) -> bool {
+        self.unstaged.is_empty() && self.staged.is_empty()
+    }
+}
+
 /// Everything the UI needs to show about a single commit.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CommitInfo {
@@ -190,6 +216,31 @@ pub trait RepoBackend {
 
     /// Unified diff for a single file within the commit.
     fn file_diff(&self, index: usize, path: &str) -> Diff;
+
+    // ---- commit mode (working tree) -------------------------------------
+
+    /// The current working-tree status: staged and unstaged changes.
+    fn working_status(&self) -> WorkingStatus;
+
+    /// Diff for a single working-tree path. With `staged` false this is the
+    /// working copy against the index (`git diff`); with `staged` true it is
+    /// the index against `HEAD` (`git diff --cached`).
+    fn working_diff(&self, path: &str, staged: bool) -> Diff;
+
+    /// Stage a path (`git add <path>`), staging a deletion if the file is
+    /// gone from the working tree. Returns a human-readable error on failure.
+    fn stage(&self, path: &str) -> Result<(), String>;
+
+    /// Unstage a path (`git reset HEAD -- <path>`).
+    fn unstage(&self, path: &str) -> Result<(), String>;
+
+    /// Commit the staged changes with `message`. When `amend` is set, replace
+    /// the current `HEAD` commit instead of adding a new one.
+    fn commit(&self, message: &str, amend: bool) -> Result<(), String>;
+
+    /// The full message of the current `HEAD` commit, used to pre-fill the
+    /// editor when amending. `None` if there is no commit yet.
+    fn head_message(&self) -> Option<String>;
 }
 
 /// Format a Unix timestamp (+ minute offset) as `YYYY-MM-DD HH:MM:SS ±HHMM`

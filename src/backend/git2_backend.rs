@@ -1,12 +1,13 @@
 //! The live [`RepoBackend`] backed by `git2` / libgit2.
 
 use std::collections::HashMap;
+use std::path::Path;
 
 use git2::{Commit, Delta, DiffFormat, DiffLineType, DiffOptions, Oid, Repository, Sort};
 
 use super::{
     ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, RefKind, RefLabel,
-    RepoBackend,
+    RepoBackend, WorkingStatus,
 };
 
 /// Opens a repository and reads commits/diffs through libgit2.
@@ -84,28 +85,9 @@ impl RepoBackend for Git2Backend {
         let Some(diff) = self.build_diff(index, None) else {
             return Vec::new();
         };
-        let mut files = Vec::new();
-        for delta in diff.deltas() {
-            let new_path = delta
-                .new_file()
-                .path()
-                .map(|p| p.display().to_string());
-            let old_path = delta
-                .old_file()
-                .path()
-                .map(|p| p.display().to_string());
-            let status = status_from_delta(delta.status());
-            let path = new_path
-                .clone()
-                .or_else(|| old_path.clone())
-                .unwrap_or_default();
-            files.push(FileChange {
-                path,
-                old_path: old_path.filter(|o| Some(o) != new_path.as_ref()),
-                status,
-            });
-        }
-        files
+        diff.deltas()
+            .map(|delta| file_change_from_delta(&delta))
+            .collect()
     }
 
     fn commit_diff(&self, index: usize) -> Diff {
@@ -119,6 +101,135 @@ impl RepoBackend for Git2Backend {
             .map(render_diff)
             .unwrap_or_default()
     }
+
+    fn working_status(&self) -> WorkingStatus {
+        let mut opts = git2::StatusOptions::new();
+        opts.include_untracked(true)
+            .recurse_untracked_dirs(true)
+            .renames_head_to_index(true)
+            .renames_index_to_workdir(true);
+        let Ok(statuses) = self.repo.statuses(Some(&mut opts)) else {
+            return WorkingStatus::default();
+        };
+
+        let mut status = WorkingStatus::default();
+        for entry in statuses.iter() {
+            if let Some(delta) = entry.head_to_index() {
+                status.staged.push(file_change_from_delta(&delta));
+            }
+            if let Some(delta) = entry.index_to_workdir() {
+                status.unstaged.push(file_change_from_delta(&delta));
+            }
+        }
+        status
+    }
+
+    fn working_diff(&self, path: &str, staged: bool) -> Diff {
+        let mut opts = DiffOptions::new();
+        opts.context_lines(3).pathspec(path);
+        let diff = if staged {
+            let head_tree = self.repo.head().ok().and_then(|h| h.peel_to_tree().ok());
+            self.repo
+                .diff_tree_to_index(head_tree.as_ref(), None, Some(&mut opts))
+        } else {
+            opts.include_untracked(true)
+                .recurse_untracked_dirs(true)
+                .show_untracked_content(true);
+            self.repo.diff_index_to_workdir(None, Some(&mut opts))
+        };
+        diff.ok().map(render_diff).unwrap_or_default()
+    }
+
+    fn stage(&self, path: &str) -> Result<(), String> {
+        let mut index = self.repo.index().map_err(err_msg)?;
+        let p = Path::new(path);
+        let in_workdir = self
+            .repo
+            .workdir()
+            .map(|w| w.join(path).exists())
+            .unwrap_or(false);
+        if in_workdir {
+            index.add_path(p).map_err(err_msg)?;
+        } else {
+            // The file is gone from the working tree — stage its removal.
+            index.remove_path(p).map_err(err_msg)?;
+        }
+        index.write().map_err(err_msg)
+    }
+
+    fn unstage(&self, path: &str) -> Result<(), String> {
+        match self.repo.head() {
+            Ok(head) => {
+                let target = head.peel(git2::ObjectType::Commit).map_err(err_msg)?;
+                self.repo.reset_default(Some(&target), [path]).map_err(err_msg)
+            }
+            // No HEAD yet (before the first commit): unstaging a path just
+            // drops it back out of the index.
+            Err(_) => {
+                let mut index = self.repo.index().map_err(err_msg)?;
+                index.remove_path(Path::new(path)).map_err(err_msg)?;
+                index.write().map_err(err_msg)
+            }
+        }
+    }
+
+    fn commit(&self, message: &str, amend: bool) -> Result<(), String> {
+        if message.trim().is_empty() {
+            return Err("Please enter a commit message.".into());
+        }
+        let mut index = self.repo.index().map_err(err_msg)?;
+        let tree_oid = index.write_tree().map_err(err_msg)?;
+        let tree = self.repo.find_tree(tree_oid).map_err(err_msg)?;
+
+        if amend {
+            let head = self
+                .repo
+                .head()
+                .and_then(|h| h.peel_to_commit())
+                .map_err(err_msg)?;
+            // Keep the original author/committer; only the message and tree
+            // change. (`None` tells libgit2 to reuse the existing values.)
+            head.amend(Some("HEAD"), None, None, None, Some(message), Some(&tree))
+                .map_err(err_msg)?;
+        } else {
+            let sig = self.repo.signature().map_err(|_| {
+                "No git identity configured. Set user.name and user.email.".to_string()
+            })?;
+            let parent = self.repo.head().ok().and_then(|h| h.peel_to_commit().ok());
+            let parents: Vec<&Commit> = parent.iter().collect();
+            self.repo
+                .commit(Some("HEAD"), &sig, &sig, message, &tree, &parents)
+                .map_err(err_msg)?;
+        }
+        Ok(())
+    }
+
+    fn head_message(&self) -> Option<String> {
+        let commit = self.repo.head().ok()?.peel_to_commit().ok()?;
+        Some(commit.message().unwrap_or("").to_string())
+    }
+}
+
+/// Map a libgit2 diff delta to our [`FileChange`], collapsing the old path for
+/// non-rename changes.
+fn file_change_from_delta(delta: &git2::DiffDelta) -> FileChange {
+    let new_path = delta.new_file().path().map(|p| p.display().to_string());
+    let old_path = delta.old_file().path().map(|p| p.display().to_string());
+    let status = status_from_delta(delta.status());
+    let path = new_path
+        .clone()
+        .or_else(|| old_path.clone())
+        .unwrap_or_default();
+    FileChange {
+        path,
+        old_path: old_path.filter(|o| Some(o) != new_path.as_ref()),
+        status,
+    }
+}
+
+/// Render a libgit2 error as a short message for the UI's dialog.
+fn err_msg(e: git2::Error) -> String {
+    e.message().to_string()
 }
 
 /// Walk all references once and group branch/tag labels by the commit they
@@ -249,6 +360,7 @@ fn status_from_delta(delta: Delta) -> ChangeStatus {
         Delta::Renamed => ChangeStatus::Renamed,
         Delta::Copied => ChangeStatus::Copied,
         Delta::Typechange => ChangeStatus::TypeChange,
+        Delta::Untracked => ChangeStatus::Untracked,
         _ => ChangeStatus::Other,
     }
 }

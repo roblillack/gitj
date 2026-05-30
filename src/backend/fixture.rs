@@ -4,11 +4,12 @@
 //! SHAs, timestamps, refs, file lists and diffs, so snapshot tests render
 //! identical pixels on every machine without touching a real repository.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 use super::{
     ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, RefKind, RefLabel,
-    RepoBackend,
+    RepoBackend, WorkingStatus,
 };
 
 /// A file changed by a commit, paired with the diff that produced it.
@@ -17,10 +18,24 @@ pub struct FileEntry {
     pub diff: Diff,
 }
 
+/// One path in the simulated working tree. Real git tracks separate
+/// working-vs-index and index-vs-HEAD diffs; the fixture keeps a single diff
+/// per file and a `staged` flag, which is enough to drive and snapshot the
+/// commit UI deterministically.
+struct WorkingEntry {
+    change: FileChange,
+    diff: Diff,
+    staged: bool,
+}
+
 pub struct FixtureBackend {
     path: String,
     commits: Vec<CommitInfo>,
     files: HashMap<usize, Vec<FileEntry>>,
+    /// The simulated working tree, mutated by stage/unstage/commit.
+    working: RefCell<Vec<WorkingEntry>>,
+    /// The last commit performed, recorded for test assertions: (message, amend).
+    last_commit: RefCell<Option<(String, bool)>>,
 }
 
 impl FixtureBackend {
@@ -29,6 +44,8 @@ impl FixtureBackend {
             path: path.into(),
             commits: Vec::new(),
             files: HashMap::new(),
+            working: RefCell::new(Vec::new()),
+            last_commit: RefCell::new(None),
         }
     }
 
@@ -38,6 +55,32 @@ impl FixtureBackend {
         self.commits.push(info);
         self.files.insert(idx, files);
         self
+    }
+
+    /// Add a path to the simulated working tree (for commit-mode tests/demos).
+    pub fn add_working(
+        &mut self,
+        path: &str,
+        status: ChangeStatus,
+        staged: bool,
+        diff_lines: &[(DiffLineKind, &str)],
+    ) -> &mut Self {
+        self.working.borrow_mut().push(WorkingEntry {
+            change: FileChange {
+                path: path.to_string(),
+                old_path: None,
+                status,
+            },
+            diff: diff(diff_lines),
+            staged,
+        });
+        self
+    }
+
+    /// The most recent commit recorded via [`RepoBackend::commit`], as
+    /// `(message, amend)` — exposed for tests.
+    pub fn last_commit(&self) -> Option<(String, bool)> {
+        self.last_commit.borrow().clone()
     }
 
     /// A small, realistic history used by snapshot tests and as a demo when no
@@ -199,6 +242,60 @@ impl FixtureBackend {
             ],
         );
 
+        // A working tree with a realistic mix of staged and unstaged changes,
+        // so commit mode has something to show.
+        be.add_working(
+            "src/ui.rs",
+            ChangeStatus::Modified,
+            false,
+            &[
+                (DiffLineKind::FileHeader, "diff --git a/src/ui.rs b/src/ui.rs"),
+                (DiffLineKind::HunkHeader, "@@ -40,6 +40,9 @@ impl GitClient {"),
+                (DiffLineKind::Context, "     fn sync(&mut self) {"),
+                (DiffLineKind::Addition, "+        // refresh the working-tree panes"),
+                (DiffLineKind::Addition, "+        self.rescan();"),
+                (DiffLineKind::Context, "         self.repaint();"),
+                (DiffLineKind::Context, "     }"),
+            ],
+        );
+        be.add_working(
+            "notes.md",
+            ChangeStatus::Untracked,
+            false,
+            &[
+                (DiffLineKind::FileHeader, "diff --git a/notes.md b/notes.md"),
+                (DiffLineKind::FileHeader, "new file mode 100644"),
+                (DiffLineKind::HunkHeader, "@@ -0,0 +1,2 @@"),
+                (DiffLineKind::Addition, "+# Notes"),
+                (DiffLineKind::Addition, "+- wire up commit mode"),
+            ],
+        );
+        be.add_working(
+            "src/widgets/commit_panel.rs",
+            ChangeStatus::Added,
+            true,
+            &[
+                (DiffLineKind::FileHeader, "diff --git a/src/widgets/commit_panel.rs b/src/widgets/commit_panel.rs"),
+                (DiffLineKind::FileHeader, "new file mode 100644"),
+                (DiffLineKind::HunkHeader, "@@ -0,0 +1,3 @@"),
+                (DiffLineKind::Addition, "+pub struct CommitPanel {"),
+                (DiffLineKind::Addition, "+    message: String,"),
+                (DiffLineKind::Addition, "+}"),
+            ],
+        );
+        be.add_working(
+            "Cargo.toml",
+            ChangeStatus::Modified,
+            true,
+            &[
+                (DiffLineKind::FileHeader, "diff --git a/Cargo.toml b/Cargo.toml"),
+                (DiffLineKind::HunkHeader, "@@ -8,3 +8,4 @@ edition = \"2024\""),
+                (DiffLineKind::Context, " [dependencies]"),
+                (DiffLineKind::Addition, "+git2 = { version = \"0.18\", default-features = false }"),
+                (DiffLineKind::Context, " retrogui = { path = \"../retrofetch/retrogui\" }"),
+            ],
+        );
+
         be
     }
 }
@@ -235,6 +332,60 @@ impl RepoBackend for FixtureBackend {
             .and_then(|entries| entries.iter().find(|e| e.change.path == path))
             .map(|e| e.diff.clone())
             .unwrap_or_default()
+    }
+
+    fn working_status(&self) -> WorkingStatus {
+        let mut status = WorkingStatus::default();
+        for entry in self.working.borrow().iter() {
+            if entry.staged {
+                status.staged.push(entry.change.clone());
+            } else {
+                status.unstaged.push(entry.change.clone());
+            }
+        }
+        status
+    }
+
+    fn working_diff(&self, path: &str, staged: bool) -> Diff {
+        self.working
+            .borrow()
+            .iter()
+            .find(|e| e.change.path == path && e.staged == staged)
+            .map(|e| e.diff.clone())
+            .unwrap_or_default()
+    }
+
+    fn stage(&self, path: &str) -> Result<(), String> {
+        for entry in self.working.borrow_mut().iter_mut() {
+            if entry.change.path == path {
+                entry.staged = true;
+            }
+        }
+        Ok(())
+    }
+
+    fn unstage(&self, path: &str) -> Result<(), String> {
+        for entry in self.working.borrow_mut().iter_mut() {
+            if entry.change.path == path {
+                entry.staged = false;
+            }
+        }
+        Ok(())
+    }
+
+    fn commit(&self, message: &str, amend: bool) -> Result<(), String> {
+        if message.trim().is_empty() {
+            return Err("Please enter a commit message.".into());
+        }
+        // The staged changes are now part of HEAD; drop them from the
+        // working set so the panes clear after committing.
+        self.working.borrow_mut().retain(|e| !e.staged);
+        *self.last_commit.borrow_mut() = Some((message.to_string(), amend));
+        Ok(())
+    }
+
+    fn head_message(&self) -> Option<String> {
+        self.commits.first().map(|c| c.message.clone())
     }
 }
 
@@ -284,11 +435,16 @@ fn file_entry(
             old_path: old_path.map(str::to_string),
             status,
         },
-        diff: Diff {
-            lines: diff_lines
-                .iter()
-                .map(|(kind, text)| DiffLine::new(*kind, text.to_string()))
-                .collect(),
-        },
+        diff: diff(diff_lines),
+    }
+}
+
+/// Build a [`Diff`] from `(kind, text)` pairs.
+fn diff(lines: &[(DiffLineKind, &str)]) -> Diff {
+    Diff {
+        lines: lines
+            .iter()
+            .map(|(kind, text)| DiffLine::new(*kind, text.to_string()))
+            .collect(),
     }
 }

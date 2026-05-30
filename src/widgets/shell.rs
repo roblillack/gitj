@@ -1,52 +1,36 @@
-//! The application shell layout — a single flat container that arranges
-//! journey's panes the way gitk does and owns one focus scope.
+//! A generic flat-focus container — the engine behind both journey screens.
 //!
-//! Why a bespoke container instead of nesting retrogui `Column`/`Row`:
-//! retrogui's focus model is flat *per container*, so a focusable `Row`
-//! nested in a `Column` becomes a single Tab stop — its inner panes can't be
-//! reached with the keyboard. By keeping every pane a direct child of one
-//! `Panes`, Tab cycles across all of them, the menu bar's Alt-accelerators
-//! reach it regardless of which pane has focus, and a modal dialog overlay
-//! floats over the whole window. The event / focus / capture / accelerator /
-//! overlay handling mirrors retrogui's `Column`; only `layout` is custom.
+//! retrogui's focus model is flat *per container*: a focusable widget nested
+//! inside another container collapses to a single Tab stop. So journey keeps
+//! every pane a direct child of one `Shell`, which gives correct Tab cycling
+//! across all panes, lets the menu bar's Alt-accelerators reach it regardless
+//! of which pane has focus, and floats a modal dialog overlay over the whole
+//! window. The event / focus / capture / accelerator / overlay handling
+//! mirrors retrogui's `Column`; only the per-child placement differs, which is
+//! why each child carries its own layout closure. The gitk browse screen and
+//! the git-gui commit screen are then just two different sets of placements
+//! (see [`crate::widgets::layout`]).
 
 use retrogui::{Color, Event, EventCtx, Painter, PopupRequest, Rect, Theme, Widget};
 
-/// Where a child sits in the gitk arrangement.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Pane {
-    /// Full-width menu bar pinned to the top.
-    Menu,
-    /// Full-width toolbar (search) below the menu.
-    Toolbar,
-    /// Full-width commit history, upper content area.
-    History,
-    /// Main diff view, lower-left content area.
-    Diff,
-    /// Changed-files list, lower-right content area.
-    Files,
-}
+/// Computes a child's rectangle from the container's bounds.
+type Place = Box<dyn Fn(Rect) -> Rect>;
 
 struct Child {
     widget: Box<dyn Widget>,
-    pane: Pane,
+    place: Place,
 }
 
-pub struct Panes {
+pub struct Shell {
     bounds: Rect,
     background: Color,
     children: Vec<Child>,
     overlays: Vec<Box<dyn Widget>>,
     captured: Option<usize>,
     focused: Option<usize>,
-    menu_h: i32,
-    toolbar_h: i32,
-    files_w: i32,
-    /// Fraction (0..1) of the content area height given to the history pane.
-    history_frac: f32,
 }
 
-impl Panes {
+impl Shell {
     pub fn new() -> Self {
         Self {
             bounds: Rect::new(0, 0, 0, 0),
@@ -55,39 +39,19 @@ impl Panes {
             overlays: Vec::new(),
             captured: None,
             focused: None,
-            menu_h: 0,
-            toolbar_h: 0,
-            files_w: 300,
-            history_frac: 0.46,
         }
     }
 
-    pub fn menu_height(mut self, h: i32) -> Self {
-        self.menu_h = h;
-        self
-    }
-
-    pub fn toolbar_height(mut self, h: i32) -> Self {
-        self.toolbar_h = h;
-        self
-    }
-
-    pub fn files_width(mut self, w: i32) -> Self {
-        self.files_w = w;
-        self
-    }
-
-    pub fn history_fraction(mut self, frac: f32) -> Self {
-        self.history_frac = frac.clamp(0.1, 0.9);
-        self
-    }
-
-    /// Add a pane. Call order also sets keyboard focus order, so add the
-    /// toolbar, history, diff and files in the order you want Tab to visit.
-    pub fn add(mut self, pane: Pane, widget: impl Widget + 'static) -> Self {
+    /// Add a child positioned by `place`. Call order also sets the keyboard
+    /// focus order — Tab visits focusable children in the order they're added.
+    pub fn add(
+        mut self,
+        widget: impl Widget + 'static,
+        place: impl Fn(Rect) -> Rect + 'static,
+    ) -> Self {
         self.children.push(Child {
             widget: Box::new(widget),
-            pane,
+            place: Box::new(place),
         });
         self
     }
@@ -98,11 +62,13 @@ impl Panes {
         self
     }
 
-    pub fn focus_pane(&mut self, pane: Pane) -> bool {
-        let Some(index) = self.children.iter().position(|c| c.pane == pane) else {
+    /// Focus the child at `index` (a direct-child index, not a focusable-only
+    /// index), if it is focusable. Returns whether focus moved there.
+    pub fn focus_child(&mut self, index: usize) -> bool {
+        let Some(child) = self.children.get(index) else {
             return false;
         };
-        if !self.children[index].widget.focusable() {
+        if !child.widget.focusable() {
             return false;
         }
         if let Some(old) = self.focused
@@ -186,13 +152,13 @@ impl Panes {
     }
 }
 
-impl Default for Panes {
+impl Default for Shell {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Widget for Panes {
+impl Widget for Shell {
     fn bounds(&self) -> Rect {
         self.bounds
     }
@@ -200,14 +166,7 @@ impl Widget for Panes {
     fn layout(&mut self, bounds: Rect) {
         self.bounds = bounds;
         for child in &mut self.children {
-            let rect = rect_for(
-                child.pane,
-                bounds,
-                self.menu_h,
-                self.toolbar_h,
-                self.files_w,
-                self.history_frac,
-            );
+            let rect = (child.place)(bounds);
             child.widget.layout(rect);
         }
         for overlay in &mut self.overlays {
@@ -268,7 +227,7 @@ impl Widget for Panes {
                 return;
             }
 
-            match retrogui_tab_action(event) {
+            match tab_action(event) {
                 Some(TabKind::Cycle(dir)) => {
                     if self.cycle_focus(dir, ctx) {
                         return;
@@ -345,39 +304,13 @@ impl Widget for Panes {
     }
 }
 
-/// Free-function form of `rect_for` usable from `&mut self` layout without
-/// borrowing all of `self`.
-fn rect_for(
-    pane: Pane,
-    b: Rect,
-    menu_h: i32,
-    toolbar_h: i32,
-    files_w: i32,
-    history_frac: f32,
-) -> Rect {
-    let content_y = b.y + menu_h + toolbar_h;
-    let content_h = (b.h - menu_h - toolbar_h).max(0);
-    let history_h = (content_h as f32 * history_frac).round() as i32;
-    let lower_y = content_y + history_h;
-    let lower_h = (content_h - history_h).max(0);
-    let files_w = files_w.min((b.w - 80).max(0));
-    let diff_w = (b.w - files_w).max(0);
-    match pane {
-        Pane::Menu => Rect::new(b.x, b.y, b.w, menu_h),
-        Pane::Toolbar => Rect::new(b.x, b.y + menu_h, b.w, toolbar_h),
-        Pane::History => Rect::new(b.x, content_y, b.w, history_h),
-        Pane::Diff => Rect::new(b.x, lower_y, diff_w, lower_h),
-        Pane::Files => Rect::new(b.x + diff_w, lower_y, files_w, lower_h),
-    }
-}
-
 // Tab handling mirrors retrogui's internal `tab_action`, which isn't public.
 enum TabKind {
     Cycle(i32),
     Swallow,
 }
 
-fn retrogui_tab_action(event: &Event) -> Option<TabKind> {
+fn tab_action(event: &Event) -> Option<TabKind> {
     use retrogui::{Key, NamedKey};
     match event {
         Event::KeyDown {

@@ -16,6 +16,11 @@ use retrogui::{
 const W: i32 = 760;
 const H: i32 = 520;
 
+// The commit screen carries more chrome (two lists, a diff, an editor and a
+// button row), so its snapshots use a slightly larger window.
+const CW: i32 = 820;
+const CH: i32 = 560;
+
 fn sample_client() -> GitClient {
     GitClient::new(Rc::new(FixtureBackend::sample()))
 }
@@ -29,6 +34,13 @@ fn key(k: NamedKey) -> Event {
 
 fn click(x: i32, y: i32) -> Event {
     Event::PointerDown {
+        pos: Point::new(x, y),
+        button: MouseButton::Left,
+    }
+}
+
+fn release(x: i32, y: i32) -> Event {
+    Event::PointerUp {
         pos: Point::new(x, y),
         button: MouseButton::Left,
     }
@@ -140,6 +152,78 @@ fn main_screen_about_dialog() {
                 key(NamedKey::Enter),
             ]
         },
+    );
+}
+
+// ----------------------------------------------------------- commit screen
+
+/// The git-gui-style commit screen: unstaged and staged file lists on the
+/// left, a diff of the (auto-selected first) unstaged file on the right, an
+/// empty message editor and the staging button row.
+#[test]
+fn commit_mode() {
+    snapshot_at_all_scales("commit_mode", CW, CH, || {
+        let mut client = sample_client();
+        client.enter_commit_mode();
+        client.focus_first();
+        Box::new(client)
+    });
+}
+
+/// Click a file in the *staged* list: the diff pane switches to that file's
+/// staged (`index` vs `HEAD`) diff and the unstaged selection clears.
+#[test]
+fn commit_mode_staged_file() {
+    snapshot_at_all_scales_with_events(
+        "commit_mode_staged_file",
+        CW,
+        CH,
+        || {
+            let mut client = sample_client();
+            client.enter_commit_mode();
+            Box::new(client)
+        },
+        || vec![click(60, 304)], // first row of the lower-left (staged) list
+    );
+}
+
+/// Click into the message editor and type a commit message.
+#[test]
+fn commit_mode_message() {
+    snapshot_at_all_scales_with_events(
+        "commit_mode_message",
+        CW,
+        CH,
+        || {
+            let mut client = sample_client();
+            client.enter_commit_mode();
+            Box::new(client)
+        },
+        || {
+            // A full click (down + up) focuses the editor and clears the
+            // click's selection anchor before typing.
+            let mut events = vec![click(420, 360), release(420, 360)];
+            events.extend(type_text("Add git-gui commit mode"));
+            events
+        },
+    );
+}
+
+/// Tick the "Amend last commit" checkbox: the editor pre-fills with the
+/// current HEAD commit's message.
+#[test]
+fn commit_mode_amend() {
+    snapshot_at_all_scales_with_events(
+        "commit_mode_amend",
+        CW,
+        CH,
+        || {
+            let mut client = sample_client();
+            client.enter_commit_mode();
+            Box::new(client)
+        },
+        // The checkbox toggles on release, so send a full click.
+        || vec![click(340, 542), release(340, 542)],
     );
 }
 

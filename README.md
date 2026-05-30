@@ -9,7 +9,12 @@ journey            # browse the repository containing the current directory
 journey /path/repo # browse the repository at (or above) a given path
 ```
 
-## Features
+journey has two screens, switched from the **View** menu:
+
+* a **browse** screen — the gitk-style history viewer, and
+* a **commit** screen — a `git gui`-style staging area.
+
+### Browse
 
 * **Commit history** with a colored DAG **graph** column, branch / tag /
   HEAD **ref badges**, and author + date columns.
@@ -19,16 +24,32 @@ journey /path/repo # browse the repository at (or above) a given path
 * **Diff view** with the usual coloring — green additions, red deletions,
   blue hunk headers, gray file headers.
 * **Search / filter** the history live by message, author, ref or SHA.
-* **Menu bar** (File ▸ Reload / Exit, Help ▸ About) with Alt-accelerators and
-  a modal About dialog.
-* Keyboard navigation throughout: Tab cycles the panes, arrows/PageUp/Down
-  drive the focused list or scroll the diff.
+
+### Commit
+
+* **Unstaged** and **Staged** file lists (à la `git gui`). Double-click a
+  file to stage / unstage it, or use the **Stage** / **Unstage** buttons.
+* The **diff pane** shows the selected file's change — working-tree-vs-index
+  for unstaged files, index-vs-`HEAD` for staged ones.
+* A multi-line **message editor** and a **Commit** button.
+* **Amend last commit**: ticking the box pre-fills the editor with `HEAD`'s
+  message and rewrites that commit instead of adding a new one.
+* **Rescan** re-reads the working tree.
+
+### Throughout
+
+* **Menu bar** (File ▸ Reload / Exit, View ▸ switch screen, Help ▸ About) with
+  Alt-accelerators and a modal About / error dialog.
+* Keyboard navigation: Tab cycles the panes, arrows/PageUp/Down drive the
+  focused list or scroll the diff.
 
 ## Layout
 
+Browse screen:
+
 ```
 ┌───────────────────────────────────────────────┐
-│ File  Help                          (menu bar) │
+│ File  View  Help                    (menu bar) │
 │ Find: [ filter query ]              (toolbar)  │
 ├───────────────────────────────────────────────┤
 │ ●│ refs  summary            author      date   │  commit history
@@ -39,6 +60,24 @@ journey /path/repo # browse the repository at (or above) a given path
 └──────────────────────────┴────────────────────┘
 ```
 
+Commit screen:
+
+```
+┌───────────────────────────────────────────────┐
+│ File  Commit  View  Help            (menu bar) │
+├──────────────────────────┬────────────────────┤
+│ Unstaged Changes          │ diff of the        │
+│ M src/ui.rs               │ selected file      │
+│ ? notes.md                │                    │
+├──────────────────────────┤                    │
+│ Staged Changes            ├────────────────────┤
+│ A src/widgets/panel.rs    │ Commit Message     │
+│ M Cargo.toml              │ [ ............... ] │
+├──────────────────────────┤ ☐ Amend            │
+│ [Stage][Unstage][Rescan]  │           [Commit] │
+└──────────────────────────┴────────────────────┘
+```
+
 ## Architecture
 
 The UI never touches `git2` directly — it goes through a small backend
@@ -46,9 +85,9 @@ abstraction, which keeps everything testable without a live repository.
 
 | Module | Contents |
 |--------|----------|
-| `backend` | `RepoBackend` trait + data types (`CommitInfo`, `FileChange`, `Diff`/`DiffLine`, `RefLabel`). Implementations: `Git2Backend` (live, libgit2) and `FixtureBackend` (deterministic, in-memory). |
-| `widgets` | git-specific widgets — `CommitList` (graph + badges + columns), `DiffView` (colored diff), `SearchBar`, `Panes` (the gitk shell layout / focus scope), `graph` (DAG lane assignment), generic `Shared<W>` adapter. |
-| `ui` | `GitClient`, the top-level widget wiring the panes together and syncing them on selection / search changes. |
+| `backend` | `RepoBackend` trait + data types (`CommitInfo`, `FileChange`, `Diff`/`DiffLine`, `RefLabel`, `WorkingStatus`). Browse reads history/diffs; commit mode adds working-tree status, per-file diffs, `stage`/`unstage`, `commit` (with amend). Implementations: `Git2Backend` (live, libgit2) and `FixtureBackend` (deterministic, in-memory, with a simulated working tree). |
+| `widgets` | git-specific widgets — `CommitList` (graph + badges + columns), `DiffView` (colored diff), `SearchBar`, `Heading`, `graph` (DAG lane assignment); `Shell`, a generic flat-focus container, plus a `layout` module giving the browse and commit screens their rectangles; generic `Shared<W>` adapter. |
+| `ui` | `GitClient`, the top-level widget. It owns both screens (a `Shell` each), switches between them, and — since retrogui widgets are callback-free — polls selections and a small command queue after each event to rebuild dependent panes. |
 
 ## Testing
 
@@ -60,6 +99,9 @@ abstraction, which keeps everything testable without a live repository.
 * **`tests/git2_backend.rs`** builds a throwaway repository with fixed
   signatures/timestamps and reads it back through `Git2Backend`, so the live
   backend is covered deterministically.
+* **`tests/commit_backend.rs`** exercises commit mode end to end: it stages,
+  unstages, commits and amends in a throwaway repository (and against the
+  fixture), asserting the working-tree status at each step.
 * **Unit tests** cover the graph lane algorithm and date formatting.
 
 ```
