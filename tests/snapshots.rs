@@ -5,7 +5,7 @@ mod common;
 
 use std::rc::Rc;
 
-use common::{snapshot_at_all_scales, snapshot_at_all_scales_with_events};
+use common::{snapshot, snapshot_with_events};
 use journey::backend::{Diff, DiffLine, DiffLineKind, FixtureBackend, RefKind, RefLabel};
 use journey::ui::GitClient;
 use journey::widgets::{compute_graph, CommitList, CommitRow, DiffView};
@@ -61,7 +61,7 @@ fn type_text(s: &str) -> Vec<Event> {
 /// changed file listed, and the whole-commit diff in the bottom pane.
 #[test]
 fn main_screen() {
-    snapshot_at_all_scales("main_screen", W, H, || {
+    snapshot("main_screen", W, H, || {
         let mut client = sample_client();
         client.focus_first();
         Box::new(client)
@@ -72,7 +72,7 @@ fn main_screen() {
 /// pane shows that commit's combined diff.
 #[test]
 fn main_screen_files_synced() {
-    snapshot_at_all_scales_with_events(
+    snapshot_with_events(
         "main_screen_files_synced",
         W,
         H,
@@ -85,7 +85,7 @@ fn main_screen_files_synced() {
 /// is bottom-right): the diff pane narrows to just that file's diff.
 #[test]
 fn main_screen_file_diff() {
-    snapshot_at_all_scales_with_events(
+    snapshot_with_events(
         "main_screen_file_diff",
         W,
         H,
@@ -103,7 +103,7 @@ fn main_screen_file_diff() {
 /// pre-highlighted), exercising menu-bar + popup compositing in the shell.
 #[test]
 fn main_screen_menu_open() {
-    snapshot_at_all_scales_with_events(
+    snapshot_with_events(
         "main_screen_menu_open",
         W,
         H,
@@ -116,7 +116,7 @@ fn main_screen_menu_open() {
 /// to the matching commit and the panes follow.
 #[test]
 fn main_screen_filtered() {
-    snapshot_at_all_scales_with_events(
+    snapshot_with_events(
         "main_screen_filtered",
         W,
         H,
@@ -134,7 +134,7 @@ fn main_screen_filtered() {
 /// the command-free dialog callback, and the overlay compositing path.
 #[test]
 fn main_screen_about_dialog() {
-    snapshot_at_all_scales_with_events(
+    snapshot_with_events(
         "main_screen_about_dialog",
         W,
         H,
@@ -162,7 +162,7 @@ fn main_screen_about_dialog() {
 /// empty message editor and the staging button row.
 #[test]
 fn commit_mode() {
-    snapshot_at_all_scales("commit_mode", CW, CH, || {
+    snapshot("commit_mode", CW, CH, || {
         let mut client = sample_client();
         client.enter_commit_mode();
         client.focus_first();
@@ -174,7 +174,7 @@ fn commit_mode() {
 /// staged (`index` vs `HEAD`) diff and the unstaged selection clears.
 #[test]
 fn commit_mode_staged_file() {
-    snapshot_at_all_scales_with_events(
+    snapshot_with_events(
         "commit_mode_staged_file",
         CW,
         CH,
@@ -190,7 +190,7 @@ fn commit_mode_staged_file() {
 /// Click into the message editor and type a commit message.
 #[test]
 fn commit_mode_message() {
-    snapshot_at_all_scales_with_events(
+    snapshot_with_events(
         "commit_mode_message",
         CW,
         CH,
@@ -213,7 +213,7 @@ fn commit_mode_message() {
 /// current HEAD commit's message.
 #[test]
 fn commit_mode_amend() {
-    snapshot_at_all_scales_with_events(
+    snapshot_with_events(
         "commit_mode_amend",
         CW,
         CH,
@@ -233,7 +233,7 @@ fn commit_mode_amend() {
 /// dropping it from the amended commit.
 #[test]
 fn commit_mode_amend_unstage() {
-    snapshot_at_all_scales_with_events(
+    snapshot_with_events(
         "commit_mode_amend_unstage",
         CW,
         CH,
@@ -260,7 +260,7 @@ fn commit_mode_amend_unstage() {
 /// jumps straight to the staging view.
 #[test]
 fn log_double_click_opens_commit() {
-    snapshot_at_all_scales_with_events(
+    snapshot_with_events(
         "log_double_click_opens_commit",
         W,
         H,
@@ -275,7 +275,7 @@ fn log_double_click_opens_commit() {
 /// staged entries are gone and the log is in front again.
 #[test]
 fn commit_returns_to_log() {
-    snapshot_at_all_scales_with_events(
+    snapshot_with_events(
         "commit_returns_to_log",
         CW,
         CH,
@@ -300,7 +300,7 @@ fn commit_returns_to_log() {
 /// captured independently of the rest of the UI.
 #[test]
 fn diff_view_all_kinds() {
-    snapshot_at_all_scales("diff_view_all_kinds", 460, 220, || {
+    snapshot("diff_view_all_kinds", 460, 220, || {
         let mut view = DiffView::new(Rect::new(8, 8, 444, 204));
         view.set_diff(sample_diff());
         Box::new(
@@ -315,7 +315,7 @@ fn diff_view_all_kinds() {
 /// few rows via the keyboard.
 #[test]
 fn diff_view_scrolled() {
-    snapshot_at_all_scales_with_events(
+    snapshot_with_events(
         "diff_view_scrolled",
         300,
         120,
@@ -385,7 +385,7 @@ fn badge_rows() -> Vec<CommitRow> {
 /// column, and a focused selection on the first row.
 #[test]
 fn commit_list_focused() {
-    snapshot_at_all_scales("commit_list_focused", 620, 90, || {
+    snapshot("commit_list_focused", 620, 90, || {
         let mut list = CommitList::new(Rect::new(8, 8, 604, 74)).with_rows(badge_rows());
         list.set_selected(Some(0));
         list.set_focused(true);
@@ -400,7 +400,7 @@ fn commit_list_focused() {
 /// Same list with the selection present but focus elsewhere (muted gray band).
 #[test]
 fn commit_list_unfocused() {
-    snapshot_at_all_scales("commit_list_unfocused", 620, 90, || {
+    snapshot("commit_list_unfocused", 620, 90, || {
         let mut list = CommitList::new(Rect::new(8, 8, 604, 74)).with_rows(badge_rows());
         list.set_selected(Some(0));
         Box::new(
@@ -415,7 +415,7 @@ fn commit_list_unfocused() {
 /// merge dot fanning out and a feature lane merging back.
 #[test]
 fn commit_list_graph() {
-    snapshot_at_all_scales("commit_list_graph", 560, 130, || {
+    snapshot("commit_list_graph", 560, 130, || {
         let row = |id: &str, parents: &[&str], summary: &str, refs: Vec<RefLabel>| CommitRow {
             id: id.into(),
             parents: parents.iter().map(|p| p.to_string()).collect(),
