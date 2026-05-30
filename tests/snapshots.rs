@@ -227,6 +227,33 @@ fn commit_mode_amend() {
     );
 }
 
+/// Amend, then pull an already-committed file back *out* of the commit:
+/// after ticking Amend the HEAD file (`src/widgets/graph.rs`) shows up
+/// staged; selecting it and clicking Unstage moves it to the unstaged list,
+/// dropping it from the amended commit.
+#[test]
+fn commit_mode_amend_unstage() {
+    snapshot_at_all_scales_with_events(
+        "commit_mode_amend_unstage",
+        CW,
+        CH,
+        || {
+            let mut client = sample_client();
+            client.enter_commit_mode();
+            Box::new(client)
+        },
+        || {
+            vec![
+                click(340, 542),  // tick "Amend last commit"
+                release(340, 542),
+                click(50, 340),   // select the HEAD file (3rd staged row)
+                click(150, 545),  // press the "Unstage" button...
+                release(150, 545),
+            ]
+        },
+    );
+}
+
 // ----------------------------------------------------------- DiffView widget
 
 /// A standalone diff pane showing one of every line kind, so the palette is

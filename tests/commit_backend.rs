@@ -22,20 +22,20 @@ fn scratch_dir(tag: &str) -> std::path::PathBuf {
 fn fixture_stage_unstage_commit() {
     let be = FixtureBackend::sample();
 
-    let ws = be.working_status();
+    let ws = be.working_status(false);
     assert_eq!(ws.unstaged.len(), 2, "sample has two unstaged files");
     assert_eq!(ws.staged.len(), 2, "sample has two staged files");
 
     // Stage an unstaged file: it moves to the staged list.
     be.stage("src/ui.rs").unwrap();
-    let ws = be.working_status();
+    let ws = be.working_status(false);
     assert_eq!(ws.unstaged.len(), 1);
     assert_eq!(ws.staged.len(), 3);
     assert!(ws.staged.iter().any(|f| f.path == "src/ui.rs"));
 
     // Unstage a staged file: it moves back.
-    be.unstage("Cargo.toml").unwrap();
-    let ws = be.working_status();
+    be.unstage("Cargo.toml", false).unwrap();
+    let ws = be.working_status(false);
     assert!(ws.unstaged.iter().any(|f| f.path == "Cargo.toml"));
     assert!(!ws.staged.iter().any(|f| f.path == "Cargo.toml"));
 
@@ -45,7 +45,27 @@ fn fixture_stage_unstage_commit() {
         be.last_commit(),
         Some(("wire up commit mode".to_string(), false))
     );
-    assert!(be.working_status().staged.is_empty());
+    assert!(be.working_status(false).staged.is_empty());
+
+    // Amend view: the HEAD commit's files show up as staged (they'd be
+    // re-committed), and can be pulled back out to the unstaged side.
+    let amend = be.working_status(true);
+    assert!(
+        amend.staged.iter().any(|f| f.path == "src/widgets/graph.rs"),
+        "amend should stage HEAD's files, got {:?}",
+        amend.staged
+    );
+    be.unstage("src/widgets/graph.rs", true).unwrap();
+    let amend = be.working_status(true);
+    assert!(!amend.staged.iter().any(|f| f.path == "src/widgets/graph.rs"));
+    assert!(amend.unstaged.iter().any(|f| f.path == "src/widgets/graph.rs"));
+    // Normal (non-amend) view never shows HEAD's files.
+    assert!(
+        !be.working_status(false)
+            .staged
+            .iter()
+            .any(|f| f.path == "src/widgets/graph.rs")
+    );
 
     // An empty message is rejected.
     assert!(be.commit("   ", false).is_err());
@@ -68,7 +88,7 @@ fn git2_stage_commit_amend() {
     let backend = Git2Backend::open(dir.to_str().unwrap()).expect("open repo");
 
     // A brand-new file shows up as untracked and unstaged.
-    let ws = backend.working_status();
+    let ws = backend.working_status(false);
     assert_eq!(ws.unstaged.len(), 1);
     assert_eq!(ws.unstaged[0].path, "a.txt");
     assert_eq!(ws.unstaged[0].status, ChangeStatus::Untracked);
@@ -76,7 +96,7 @@ fn git2_stage_commit_amend() {
 
     // Staging moves it to the staged list (now an addition).
     backend.stage("a.txt").unwrap();
-    let ws = backend.working_status();
+    let ws = backend.working_status(false);
     assert!(ws.unstaged.is_empty());
     assert_eq!(ws.staged.len(), 1);
     assert_eq!(ws.staged[0].status, ChangeStatus::Added);
@@ -86,17 +106,17 @@ fn git2_stage_commit_amend() {
     let reopened = Git2Backend::open(dir.to_str().unwrap()).unwrap();
     assert_eq!(reopened.commits().len(), 1);
     assert_eq!(reopened.commits()[0].summary, "first commit");
-    assert!(backend.working_status().is_clean());
+    assert!(backend.working_status(false).is_clean());
 
     // Modify the file: it now diffs as a modification, and the staged diff
     // captures the new line.
     fs::write(dir.join("a.txt"), "one\ntwo\n").unwrap();
-    let ws = backend.working_status();
+    let ws = backend.working_status(false);
     assert_eq!(ws.unstaged.len(), 1);
     assert_eq!(ws.unstaged[0].status, ChangeStatus::Modified);
 
     backend.stage("a.txt").unwrap();
-    let staged_diff = backend.working_diff("a.txt", true);
+    let staged_diff = backend.working_diff("a.txt", true, false);
     assert!(
         staged_diff.lines.iter().any(|l| l.text.contains("two")),
         "staged diff should add 'two', got {:?}",
@@ -104,7 +124,31 @@ fn git2_stage_commit_amend() {
     );
     backend.commit("second commit", false).unwrap();
 
-    // Amend the second commit's message (no new commit is created).
+    // With nothing staged, the normal view is clean...
+    assert!(backend.working_status(false).is_clean());
+    // ...but the amend view re-bases on HEAD's parent, so the second commit's
+    // own change to a.txt shows up as staged.
+    let amend = backend.working_status(true);
+    assert!(
+        amend.staged.iter().any(|f| f.path == "a.txt"),
+        "amend view should stage HEAD's file, got {:?}",
+        amend
+    );
+    let amend_diff = backend.working_diff("a.txt", true, true);
+    assert!(
+        amend_diff.lines.iter().any(|l| l.text.contains("two")),
+        "amend staged diff should show the committed change, got {:?}",
+        amend_diff.lines
+    );
+
+    // Pull a.txt out of the amend: it leaves the staged side (reset to HEAD^).
+    backend.unstage("a.txt", true).unwrap();
+    let amend = backend.working_status(true);
+    assert!(amend.staged.is_empty(), "after unstage, got {:?}", amend.staged);
+    assert!(amend.unstaged.iter().any(|f| f.path == "a.txt"));
+
+    // Re-stage and amend the message (no new commit is created).
+    backend.stage("a.txt").unwrap();
     backend.commit("second commit, reworded", true).unwrap();
     let reopened = Git2Backend::open(dir.to_str().unwrap()).unwrap();
     assert_eq!(reopened.commits().len(), 2, "amend must not add a commit");

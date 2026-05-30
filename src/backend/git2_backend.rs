@@ -70,6 +70,19 @@ impl Git2Backend {
         let _ = diff.find_similar(None);
         Some(diff)
     }
+
+    /// The tree the staged side is diffed against: `HEAD`'s tree normally, or
+    /// `HEAD`'s parent's tree when amending. `None` means "no base" (unborn
+    /// `HEAD`, or amending the root commit) — the index is then diffed against
+    /// the empty tree, so everything reads as additions.
+    fn staged_base_tree(&self, amend: bool) -> Option<git2::Tree<'_>> {
+        let head = self.repo.head().ok()?.peel_to_commit().ok()?;
+        if amend {
+            head.parent(0).ok().and_then(|p| p.tree().ok())
+        } else {
+            head.tree().ok()
+        }
+    }
 }
 
 impl RepoBackend for Git2Backend {
@@ -102,35 +115,44 @@ impl RepoBackend for Git2Backend {
             .unwrap_or_default()
     }
 
-    fn working_status(&self) -> WorkingStatus {
-        let mut opts = git2::StatusOptions::new();
-        opts.include_untracked(true)
-            .recurse_untracked_dirs(true)
-            .renames_head_to_index(true)
-            .renames_index_to_workdir(true);
-        let Ok(statuses) = self.repo.statuses(Some(&mut opts)) else {
-            return WorkingStatus::default();
-        };
+    fn working_status(&self, amend: bool) -> WorkingStatus {
+        let base = self.staged_base_tree(amend);
 
-        let mut status = WorkingStatus::default();
-        for entry in statuses.iter() {
-            if let Some(delta) = entry.head_to_index() {
-                status.staged.push(file_change_from_delta(&delta));
-            }
-            if let Some(delta) = entry.index_to_workdir() {
-                status.unstaged.push(file_change_from_delta(&delta));
+        // Staged side: the index against the base tree (HEAD, or HEAD's parent
+        // when amending). With no base (unborn / amending the root commit) the
+        // whole index reads as additions.
+        let mut staged_opts = DiffOptions::new();
+        let mut staged = WorkingStatus::default();
+        if let Ok(mut diff) =
+            self.repo
+                .diff_tree_to_index(base.as_ref(), None, Some(&mut staged_opts))
+        {
+            let _ = diff.find_similar(None);
+            for delta in diff.deltas() {
+                staged.staged.push(file_change_from_delta(&delta));
             }
         }
-        status
+
+        // Unstaged side: the working tree against the index (independent of
+        // the amend base), including untracked files.
+        let mut wd_opts = DiffOptions::new();
+        wd_opts.include_untracked(true).recurse_untracked_dirs(true);
+        if let Ok(diff) = self.repo.diff_index_to_workdir(None, Some(&mut wd_opts)) {
+            for delta in diff.deltas() {
+                staged.unstaged.push(file_change_from_delta(&delta));
+            }
+        }
+
+        staged
     }
 
-    fn working_diff(&self, path: &str, staged: bool) -> Diff {
+    fn working_diff(&self, path: &str, staged: bool, amend: bool) -> Diff {
         let mut opts = DiffOptions::new();
         opts.context_lines(3).pathspec(path);
         let diff = if staged {
-            let head_tree = self.repo.head().ok().and_then(|h| h.peel_to_tree().ok());
+            let base = self.staged_base_tree(amend);
             self.repo
-                .diff_tree_to_index(head_tree.as_ref(), None, Some(&mut opts))
+                .diff_tree_to_index(base.as_ref(), None, Some(&mut opts))
         } else {
             opts.include_untracked(true)
                 .recurse_untracked_dirs(true)
@@ -157,15 +179,20 @@ impl RepoBackend for Git2Backend {
         index.write().map_err(err_msg)
     }
 
-    fn unstage(&self, path: &str) -> Result<(), String> {
-        match self.repo.head() {
-            Ok(head) => {
-                let target = head.peel(git2::ObjectType::Commit).map_err(err_msg)?;
-                self.repo.reset_default(Some(&target), [path]).map_err(err_msg)
-            }
-            // No HEAD yet (before the first commit): unstaging a path just
-            // drops it back out of the index.
-            Err(_) => {
+    fn unstage(&self, path: &str, amend: bool) -> Result<(), String> {
+        // Reset the index entry to the staged base: HEAD normally, HEAD's
+        // parent when amending (which drops the path from the amended commit).
+        let head = self.repo.head().ok().and_then(|h| h.peel_to_commit().ok());
+        let target: Option<git2::Object> = match (amend, head) {
+            (false, Some(commit)) => Some(commit.into_object()),
+            (true, Some(commit)) => commit.parent(0).ok().map(|p| p.into_object()),
+            (_, None) => None,
+        };
+        match target {
+            Some(obj) => self.repo.reset_default(Some(&obj), [path]).map_err(err_msg),
+            // No base commit (unborn HEAD, or amending the root commit):
+            // unstaging just drops the path back out of the index.
+            None => {
                 let mut index = self.repo.index().map_err(err_msg)?;
                 index.remove_path(Path::new(path)).map_err(err_msg)?;
                 index.write().map_err(err_msg)

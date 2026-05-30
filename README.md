@@ -33,7 +33,10 @@ journey has two screens, switched from the **View** menu:
   for unstaged files, index-vs-`HEAD` for staged ones.
 * A multi-line **message editor** and a **Commit** button.
 * **Amend last commit**: ticking the box pre-fills the editor with `HEAD`'s
-  message and rewrites that commit instead of adding a new one.
+  message *and* re-bases the staging view on `HEAD`'s parent, so the changes
+  already in the last commit show up as staged. Unstage any of them to drop
+  them from the amended commit; committing then rewrites `HEAD` rather than
+  adding a new commit.
 * **Rescan** re-reads the working tree.
 
 ### Throughout

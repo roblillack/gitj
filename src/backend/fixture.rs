@@ -5,7 +5,7 @@
 //! identical pixels on every machine without touching a real repository.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::{
     ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, RefKind, RefLabel,
@@ -34,6 +34,9 @@ pub struct FixtureBackend {
     files: HashMap<usize, Vec<FileEntry>>,
     /// The simulated working tree, mutated by stage/unstage/commit.
     working: RefCell<Vec<WorkingEntry>>,
+    /// Paths from the HEAD commit the user has pulled out of an in-progress
+    /// amend (so they show as unstaged instead of staged while amending).
+    amend_removed: RefCell<HashSet<String>>,
     /// The last commit performed, recorded for test assertions: (message, amend).
     last_commit: RefCell<Option<(String, bool)>>,
 }
@@ -45,8 +48,15 @@ impl FixtureBackend {
             commits: Vec::new(),
             files: HashMap::new(),
             working: RefCell::new(Vec::new()),
+            amend_removed: RefCell::new(HashSet::new()),
             last_commit: RefCell::new(None),
         }
+    }
+
+    /// The files belonging to the `HEAD` commit (index 0, newest first) — the
+    /// changes that an amend would re-commit.
+    fn head_files(&self) -> &[FileEntry] {
+        self.files.get(&0).map(Vec::as_slice).unwrap_or(&[])
     }
 
     /// Append a commit and the files it touched.
@@ -334,7 +344,7 @@ impl RepoBackend for FixtureBackend {
             .unwrap_or_default()
     }
 
-    fn working_status(&self) -> WorkingStatus {
+    fn working_status(&self, amend: bool) -> WorkingStatus {
         let mut status = WorkingStatus::default();
         for entry in self.working.borrow().iter() {
             if entry.staged {
@@ -343,32 +353,71 @@ impl RepoBackend for FixtureBackend {
                 status.unstaged.push(entry.change.clone());
             }
         }
+        // When amending, the HEAD commit's files join the staged side (they'll
+        // be re-committed) unless the user has pulled them back out.
+        if amend {
+            let removed = self.amend_removed.borrow();
+            for fe in self.head_files() {
+                if removed.contains(&fe.change.path) {
+                    status.unstaged.push(fe.change.clone());
+                } else {
+                    status.staged.push(fe.change.clone());
+                }
+            }
+        }
         status
     }
 
-    fn working_diff(&self, path: &str, staged: bool) -> Diff {
-        self.working
+    fn working_diff(&self, path: &str, _staged: bool, amend: bool) -> Diff {
+        // The simulation keeps a single diff per path, so the staged/unstaged
+        // side doesn't change which diff we show.
+        if let Some(diff) = self
+            .working
             .borrow()
             .iter()
-            .find(|e| e.change.path == path && e.staged == staged)
+            .find(|e| e.change.path == path)
             .map(|e| e.diff.clone())
-            .unwrap_or_default()
+        {
+            return diff;
+        }
+        if amend
+            && let Some(diff) = self
+                .head_files()
+                .iter()
+                .find(|fe| fe.change.path == path)
+                .map(|fe| fe.diff.clone())
+        {
+            return diff;
+        }
+        Diff::default()
     }
 
     fn stage(&self, path: &str) -> Result<(), String> {
+        let mut found = false;
         for entry in self.working.borrow_mut().iter_mut() {
             if entry.change.path == path {
                 entry.staged = true;
+                found = true;
             }
+        }
+        // Re-staging a HEAD file that had been pulled out of an amend.
+        if !found {
+            self.amend_removed.borrow_mut().remove(path);
         }
         Ok(())
     }
 
-    fn unstage(&self, path: &str) -> Result<(), String> {
+    fn unstage(&self, path: &str, amend: bool) -> Result<(), String> {
+        let mut found = false;
         for entry in self.working.borrow_mut().iter_mut() {
             if entry.change.path == path {
                 entry.staged = false;
+                found = true;
             }
+        }
+        // Dropping a HEAD file from the commit being amended.
+        if !found && amend {
+            self.amend_removed.borrow_mut().insert(path.to_string());
         }
         Ok(())
     }
@@ -380,6 +429,7 @@ impl RepoBackend for FixtureBackend {
         // The staged changes are now part of HEAD; drop them from the
         // working set so the panes clear after committing.
         self.working.borrow_mut().retain(|e| !e.staged);
+        self.amend_removed.borrow_mut().clear();
         *self.last_commit.borrow_mut() = Some((message.to_string(), amend));
         Ok(())
     }

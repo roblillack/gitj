@@ -420,7 +420,8 @@ impl GitClient {
 
     /// Re-read the working tree and rebuild the staged / unstaged lists.
     fn rescan(&mut self) {
-        self.working = self.backend.working_status();
+        let amend = self.amend_check.borrow().is_checked();
+        self.working = self.backend.working_status(amend);
 
         let unstaged: Vec<ListItem> = self.working.unstaged.iter().map(file_row).collect();
         let staged: Vec<ListItem> = self.working.staged.iter().map(file_row).collect();
@@ -463,13 +464,14 @@ impl GitClient {
         self.prev_staged_sel = self.staged_list.borrow().selected_index();
 
         let staged = matches!(side, Side::Staged);
+        let amend = self.amend_check.borrow().is_checked();
         let files = match side {
             Side::Unstaged => &self.working.unstaged,
             Side::Staged => &self.working.staged,
         };
         let diff = files
             .get(i)
-            .map(|f| self.backend.working_diff(&f.path, staged))
+            .map(|f| self.backend.working_diff(&f.path, staged, amend))
             .unwrap_or_default();
         self.commit_diff_view.borrow_mut().set_diff(diff);
     }
@@ -516,6 +518,9 @@ impl GitClient {
             {
                 self.message_editor.borrow_mut().set_text(msg.trim_end());
             }
+            // Re-base the staging view on HEAD's parent (or back on HEAD), so
+            // the already-committed changes appear in / leave the staged list.
+            self.rescan();
             return true;
         }
 
@@ -557,7 +562,8 @@ impl GitClient {
     fn unstage_index(&mut self, i: usize) {
         if let Some(file) = self.working.staged.get(i) {
             let path = file.path.clone();
-            if let Err(e) = self.backend.unstage(&path) {
+            let amend = self.amend_check.borrow().is_checked();
+            if let Err(e) = self.backend.unstage(&path, amend) {
                 self.dialog.borrow_mut().show_error("Unstage failed", &e);
             }
         }

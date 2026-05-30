@@ -220,19 +220,27 @@ pub trait RepoBackend {
     // ---- commit mode (working tree) -------------------------------------
 
     /// The current working-tree status: staged and unstaged changes.
-    fn working_status(&self) -> WorkingStatus;
+    ///
+    /// When `amend` is set the staged side is computed against `HEAD`'s
+    /// *parent* instead of `HEAD`, so the changes already in the last commit
+    /// show up as staged (they will be part of the amended commit) and can be
+    /// unstaged to drop them — exactly how `git gui`'s amend mode behaves.
+    fn working_status(&self, amend: bool) -> WorkingStatus;
 
     /// Diff for a single working-tree path. With `staged` false this is the
     /// working copy against the index (`git diff`); with `staged` true it is
-    /// the index against `HEAD` (`git diff --cached`).
-    fn working_diff(&self, path: &str, staged: bool) -> Diff;
+    /// the index against the staged base — `HEAD` normally, `HEAD`'s parent
+    /// when `amend` is set.
+    fn working_diff(&self, path: &str, staged: bool, amend: bool) -> Diff;
 
     /// Stage a path (`git add <path>`), staging a deletion if the file is
     /// gone from the working tree. Returns a human-readable error on failure.
     fn stage(&self, path: &str) -> Result<(), String>;
 
-    /// Unstage a path (`git reset HEAD -- <path>`).
-    fn unstage(&self, path: &str) -> Result<(), String>;
+    /// Unstage a path. Normally resets the index entry to `HEAD`
+    /// (`git reset HEAD -- <path>`); when `amend` is set it resets to `HEAD`'s
+    /// parent, removing the path's change from the commit being amended.
+    fn unstage(&self, path: &str, amend: bool) -> Result<(), String>;
 
     /// Commit the staged changes with `message`. When `amend` is set, replace
     /// the current `HEAD` commit instead of adding a new one.
