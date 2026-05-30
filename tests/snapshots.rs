@@ -254,6 +254,46 @@ fn commit_mode_amend_unstage() {
     );
 }
 
+// --------------------------------------------------- log ↔ commit navigation
+
+/// Double-clicking the "Uncommitted changes" pseudo-row at the top of the log
+/// jumps straight to the staging view.
+#[test]
+fn log_double_click_opens_commit() {
+    snapshot_at_all_scales_with_events(
+        "log_double_click_opens_commit",
+        W,
+        H,
+        || Box::new(sample_client()),
+        // Two clicks on the first log row (the working-tree pseudo-row) within
+        // the double-click window open the commit screen.
+        || vec![click(200, 55), click(200, 55)],
+    );
+}
+
+/// Committing from the staging view drops back to the log automatically: the
+/// staged entries are gone and the log is in front again.
+#[test]
+fn commit_returns_to_log() {
+    snapshot_at_all_scales_with_events(
+        "commit_returns_to_log",
+        CW,
+        CH,
+        || {
+            let mut client = sample_client();
+            client.enter_commit_mode();
+            Box::new(client)
+        },
+        || {
+            let mut events = vec![click(420, 360), release(420, 360)]; // focus editor
+            events.extend(type_text("Ship the commit view"));
+            events.push(click(755, 543)); // the Commit button
+            events.push(release(755, 543));
+            events
+        },
+    );
+}
+
 // ----------------------------------------------------------- DiffView widget
 
 /// A standalone diff pane showing one of every line kind, so the palette is

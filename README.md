@@ -9,10 +9,10 @@ journey            # browse the repository containing the current directory
 journey /path/repo # browse the repository at (or above) a given path
 ```
 
-journey has two screens, switched from the **View** menu:
-
-* a **browse** screen — the gitk-style history viewer, and
-* a **commit** screen — a `git gui`-style staging area.
+journey has two screens — the gitk-style **browse** (history) screen and the
+`git gui`-style **commit** (staging) screen. Switch between them from the
+**View** menu, by double-clicking a working-tree entry in the log, or
+automatically: committing drops you back to the log.
 
 ### Browse
 
@@ -23,6 +23,10 @@ journey has two screens, switched from the **View** menu:
   that file.
 * **Diff view** with the usual coloring — green additions, red deletions,
   blue hunk headers, gray file headers.
+* **Working-tree entries**: when there are local changes, the log leads with
+  "Uncommitted changes" / "Staged changes" rows (connected into the graph at
+  `HEAD`). Selecting one previews its files and diff; **double-clicking** it
+  opens the commit screen.
 * **Search / filter** the history live by message, author, ref or SHA.
 
 ### Commit
@@ -37,7 +41,8 @@ journey has two screens, switched from the **View** menu:
   already in the last commit show up as staged. Unstage any of them to drop
   them from the amended commit; committing then rewrites `HEAD` rather than
   adding a new commit.
-* **Rescan** re-reads the working tree.
+* **Rescan** re-reads the working tree. Committing returns to the log view,
+  which now shows the new commit.
 
 ### Throughout
 
@@ -55,6 +60,8 @@ Browse screen:
 │ File  View  Help                    (menu bar) │
 │ Find: [ filter query ]              (toolbar)  │
 ├───────────────────────────────────────────────┤
+│ ●│ Uncommitted changes (2)   (dbl-click → ⎘)   │  working-tree rows
+│ ●│ Staged changes (1)                          │
 │ ●│ refs  summary            author      date   │  commit history
 │ ●│ ...                                          │  (graph + list)
 ├──────────────────────────┬────────────────────┤

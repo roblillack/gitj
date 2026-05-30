@@ -20,7 +20,7 @@ use retrogui::{
 };
 
 use crate::backend::{
-    CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, RepoBackend, WorkingStatus,
+    CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, RefKind, RepoBackend, WorkingStatus,
 };
 use crate::widgets::{
     compute_graph, layout, CommitList, CommitRow, DiffView, Heading, SearchBar, Shared, Shell,
@@ -30,6 +30,11 @@ use crate::widgets::{
 const BROWSE_HISTORY_IDX: usize = 2;
 /// Direct-child index of the unstaged list in the commit shell.
 const COMMIT_UNSTAGED_IDX: usize = 2;
+
+/// Sentinel commit ids for the working-tree pseudo-rows in the log graph
+/// (chosen so they never collide with a real 40-hex SHA).
+const WIP_UNSTAGED_ID: &str = "\u{1}journey-wip-unstaged";
+const WIP_STAGED_ID: &str = "\u{1}journey-wip-staged";
 
 /// A closure that re-opens the repository (used by File ▸ Reload and after a
 /// commit). `None` for fixture-backed clients in tests.
@@ -42,11 +47,21 @@ enum Mode {
     Commit,
 }
 
-/// Which working-tree list a commit-mode selection came from.
+/// Which working-tree list a commit-mode selection came from, and which side
+/// a working-tree pseudo-row in the log represents.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Side {
     Unstaged,
     Staged,
+}
+
+/// What a row in the history log refers to.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RowRef {
+    /// A working-tree pseudo-row ("Uncommitted changes" / "Staged changes").
+    Wip(Side),
+    /// A real commit, by backend index.
+    Commit(usize),
 }
 
 /// Deferred actions menus / buttons request; drained by `GitClient` after
@@ -90,10 +105,16 @@ pub struct GitClient {
     reopen: Option<ReopenFn>,
 
     // ---- browse sync state ------------------------------------------------
-    visible: Vec<usize>,
+    /// Row references in display order: the working-tree pseudo-rows (when
+    /// present) followed by the visible commits.
+    rows: Vec<RowRef>,
     last_query: String,
+    /// Working-tree status backing the log's pseudo-rows (and the file/diff
+    /// panes when one is selected). Refreshed by `rebuild_commits`.
+    log_working: WorkingStatus,
     current_files: Vec<FileChange>,
-    shown_commit: Option<usize>,
+    /// The log row whose detail the file/diff panes currently show.
+    shown: Option<RowRef>,
     shown_file: Option<usize>,
 
     // ---- commit sync state ------------------------------------------------
@@ -184,10 +205,11 @@ impl GitClient {
             dialog,
             commands,
             reopen: None,
-            visible: Vec::new(),
+            rows: Vec::new(),
             last_query: String::new(),
+            log_working: WorkingStatus::default(),
             current_files: Vec::new(),
-            shown_commit: None,
+            shown: None,
             shown_file: None,
             working: WorkingStatus::default(),
             prev_unstaged_sel: None,
@@ -278,7 +300,7 @@ impl GitClient {
             return true;
         };
         self.backend = backend;
-        self.shown_commit = None;
+        self.shown = None;
         self.shown_file = None;
         self.last_query.clear();
         self.search.borrow_mut().clear();
@@ -289,9 +311,10 @@ impl GitClient {
 
     // ---- browse screen ----------------------------------------------------
 
-    /// Reload browse panes from the current selection state. When the commit
-    /// selection changes, reload the file list and show the whole commit's
-    /// diff; when the file selection changes, narrow the diff to that file.
+    /// Reload browse panes from the current selection state. Double-clicking a
+    /// working-tree pseudo-row jumps to the commit screen; otherwise, when the
+    /// selected row changes, reload the file list and overview diff, and when
+    /// the file selection changes, narrow the diff to that file.
     fn sync_browse(&mut self, force: bool) -> bool {
         let mut changed = false;
 
@@ -300,27 +323,35 @@ impl GitClient {
         if force || query != self.last_query {
             self.last_query = query.clone();
             self.rebuild_commits(&query);
-            self.shown_commit = None;
+            self.shown = None;
             changed = true;
         }
 
-        // 2. Map the selected row back to a backend commit index and, when it
-        //    changes, reload the file list and show the commit's detail.
+        // 1b. Double-clicking a working-tree row opens the staging view.
+        let activated = self.commit_list.borrow_mut().take_activated();
+        if let Some(pos) = activated
+            && matches!(self.rows.get(pos), Some(RowRef::Wip(_)))
+        {
+            self.set_mode(Mode::Commit);
+            return true;
+        }
+
+        // 2. Map the selection to a row reference; on change, reload the file
+        //    list and the overview diff.
         let sel_pos = self.commit_list.borrow().selected_index();
-        let commit_idx = sel_pos.and_then(|p| self.visible.get(p).copied());
-        if force || commit_idx != self.shown_commit {
-            self.shown_commit = commit_idx;
-            self.current_files = match commit_idx {
-                Some(idx) => self.backend.changed_files(idx),
+        let sel = sel_pos.and_then(|p| self.rows.get(p).copied());
+        if force || sel != self.shown {
+            self.shown = sel;
+            self.current_files = match sel {
+                Some(RowRef::Commit(idx)) => self.backend.changed_files(idx),
+                Some(RowRef::Wip(Side::Unstaged)) => self.log_working.unstaged.clone(),
+                Some(RowRef::Wip(Side::Staged)) => self.log_working.staged.clone(),
                 None => Vec::new(),
             };
             let items: Vec<ListItem> = self.current_files.iter().map(file_row).collect();
             self.file_list.borrow_mut().set_items(items);
             self.shown_file = None;
-            let diff = match commit_idx {
-                Some(idx) => self.commit_detail(idx),
-                None => Diff::default(),
-            };
+            let diff = self.selection_diff(sel, None);
             self.diff_view.borrow_mut().set_diff(diff);
             changed = true;
         }
@@ -329,14 +360,7 @@ impl GitClient {
         let file_sel = self.file_list.borrow().selected_index();
         if file_sel != self.shown_file {
             self.shown_file = file_sel;
-            let diff = match (self.shown_commit, file_sel) {
-                (Some(cidx), Some(fidx)) => match self.current_files.get(fidx) {
-                    Some(file) => self.backend.file_diff(cidx, &file.path),
-                    None => self.commit_detail(cidx),
-                },
-                (Some(cidx), None) => self.commit_detail(cidx),
-                _ => Diff::default(),
-            };
+            let diff = self.selection_diff(self.shown, file_sel);
             self.diff_view.borrow_mut().set_diff(diff);
             changed = true;
         }
@@ -344,35 +368,106 @@ impl GitClient {
         changed
     }
 
-    /// Recompute the visible commit set for `query` (empty = all), rebuild the
-    /// commit list rows, and preserve the selected commit when it survives the
-    /// filter (otherwise select the first visible row).
+    /// The diff to show for a log selection: a whole-commit / whole-working-set
+    /// overview when `file_sel` is `None`, otherwise that single file's diff.
+    fn selection_diff(&self, sel: Option<RowRef>, file_sel: Option<usize>) -> Diff {
+        match sel {
+            Some(RowRef::Commit(cidx)) => match file_sel.and_then(|f| self.current_files.get(f)) {
+                Some(file) => self.backend.file_diff(cidx, &file.path),
+                None => self.commit_detail(cidx),
+            },
+            Some(RowRef::Wip(side)) => {
+                let staged = matches!(side, Side::Staged);
+                match file_sel.and_then(|f| self.current_files.get(f)) {
+                    Some(file) => self.backend.working_diff(&file.path, staged, false),
+                    None => self.wip_overview_diff(staged),
+                }
+            }
+            None => Diff::default(),
+        }
+    }
+
+    /// Concatenate the per-file working diffs of the currently-shown files into
+    /// one overview, the working-tree analogue of `commit_detail`.
+    fn wip_overview_diff(&self, staged: bool) -> Diff {
+        let mut lines = Vec::new();
+        for file in &self.current_files {
+            lines.extend(self.backend.working_diff(&file.path, staged, false).lines);
+        }
+        Diff { lines }
+    }
+
+    /// Recompute the visible rows for `query` (empty = all). On the unfiltered
+    /// view, the working tree's "Uncommitted changes" / "Staged changes"
+    /// pseudo-rows lead the list and the DAG graph includes them, chained into
+    /// `HEAD`. The selection is preserved when it survives, else falls to the
+    /// first real commit (so the log opens on `HEAD`, not a pseudo-row).
     fn rebuild_commits(&mut self, query: &str) {
+        // Working-tree pseudo-rows only on the unfiltered view (which also
+        // carries the graph); a filter is about commit content.
+        self.log_working = if query.is_empty() {
+            self.backend.working_status(false)
+        } else {
+            WorkingStatus::default()
+        };
+        let show_unstaged = !self.log_working.unstaged.is_empty();
+        let show_staged = !self.log_working.staged.is_empty();
+
         let commits = self.backend.commits();
-        self.visible = (0..commits.len())
+        let commit_rows: Vec<usize> = (0..commits.len())
             .filter(|&i| query.is_empty() || commit_matches(&commits[i], query))
             .collect();
-        let rows: Vec<CommitRow> = self.visible.iter().map(|&i| commit_row(&commits[i])).collect();
 
-        // The DAG graph needs the full parent chain, which only holds for the
-        // complete, unfiltered history; hide it while a filter is active.
+        let mut row_refs: Vec<RowRef> = Vec::new();
+        let mut display: Vec<CommitRow> = Vec::new();
+        if show_unstaged {
+            row_refs.push(RowRef::Wip(Side::Unstaged));
+            display.push(wip_row(Side::Unstaged, self.log_working.unstaged.len()));
+        }
+        if show_staged {
+            row_refs.push(RowRef::Wip(Side::Staged));
+            display.push(wip_row(Side::Staged, self.log_working.staged.len()));
+        }
+        for &i in &commit_rows {
+            row_refs.push(RowRef::Commit(i));
+            display.push(commit_row(&commits[i]));
+        }
+
+        // The DAG graph needs the full parent chain, so it's shown only on the
+        // unfiltered view; the pseudo-rows are chained into HEAD so the gutter
+        // lines up with them.
         let graph = if query.is_empty() {
-            let dag: Vec<(String, Vec<String>)> = commits
-                .iter()
-                .map(|c| (c.id.clone(), c.parents.clone()))
-                .collect();
+            let head_id = head_commit_id(commits);
+            let mut dag: Vec<(String, Vec<String>)> = Vec::new();
+            if show_unstaged {
+                let parent = if show_staged {
+                    vec![WIP_STAGED_ID.to_string()]
+                } else {
+                    head_id.clone().into_iter().collect()
+                };
+                dag.push((WIP_UNSTAGED_ID.to_string(), parent));
+            }
+            if show_staged {
+                dag.push((WIP_STAGED_ID.to_string(), head_id.into_iter().collect()));
+            }
+            for &i in &commit_rows {
+                dag.push((commits[i].id.clone(), commits[i].parents.clone()));
+            }
             Some(compute_graph(&dag))
         } else {
             None
         };
 
-        let mut list = self.commit_list.borrow_mut();
-        list.set_rows(rows);
-        list.set_graph(graph);
+        self.rows = row_refs;
         let new_pos = self
-            .shown_commit
-            .and_then(|c| self.visible.iter().position(|&i| i == c))
-            .or(if self.visible.is_empty() { None } else { Some(0) });
+            .shown
+            .and_then(|s| self.rows.iter().position(|&r| r == s))
+            .or_else(|| self.rows.iter().position(|r| matches!(r, RowRef::Commit(_))))
+            .or(if self.rows.is_empty() { None } else { Some(0) });
+
+        let mut list = self.commit_list.borrow_mut();
+        list.set_rows(display);
+        list.set_graph(graph);
         list.set_selected(new_pos);
     }
 
@@ -588,10 +683,14 @@ impl GitClient {
                 self.amend_check.borrow_mut().set_checked(false);
                 self.last_amend = false;
                 // Refresh history + working tree. Re-open when we can (so the
-                // new commit appears in the browser); otherwise just rescan.
+                // new commit shows in the log); otherwise refresh in place.
                 if !self.reload() {
+                    self.shown = None;
+                    self.sync_browse(true);
                     self.rescan();
                 }
+                // Return to the log view, now showing the new commit.
+                self.set_mode(Mode::Browse);
             }
             Err(e) => {
                 self.dialog.borrow_mut().show_error("Commit failed", &e);
@@ -750,6 +849,33 @@ fn command_button(
 /// First 8 hex chars of a SHA, for compact parent display.
 fn short(sha: &str) -> String {
     sha.chars().take(8).collect()
+}
+
+/// Build the display row for a working-tree pseudo-entry in the log.
+fn wip_row(side: Side, count: usize) -> CommitRow {
+    let summary = match side {
+        Side::Unstaged => format!("Uncommitted changes ({count})"),
+        Side::Staged => format!("Staged changes ({count})"),
+    };
+    CommitRow {
+        summary,
+        ..Default::default()
+    }
+}
+
+/// The id of the current `HEAD` commit (the one the working tree sits on), so
+/// the working-tree pseudo-rows can chain into it in the graph. Falls back to
+/// the newest commit, or `None` for an empty history.
+fn head_commit_id(commits: &[CommitInfo]) -> Option<String> {
+    commits
+        .iter()
+        .find(|c| {
+            c.refs
+                .iter()
+                .any(|r| matches!(r.kind, RefKind::Head | RefKind::DetachedHead))
+        })
+        .or_else(|| commits.first())
+        .map(|c| c.id.clone())
 }
 
 /// Does a commit match a (already-lowercased) search query? Matches against
