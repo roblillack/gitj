@@ -15,7 +15,9 @@ use retrogui::{
 };
 
 use crate::backend::{CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, RepoBackend};
-use crate::widgets::{CommitList, CommitRow, DiffView, Pane, Panes, SearchBar, Shared};
+use crate::widgets::{
+    compute_graph, CommitList, CommitRow, DiffView, Pane, Panes, SearchBar, Shared,
+};
 
 /// Height of the menu bar.
 const MENU_H: i32 = 20;
@@ -221,8 +223,21 @@ impl GitClient {
         let rows: Vec<CommitRow> =
             self.visible.iter().map(|&i| commit_row(&commits[i])).collect();
 
+        // The DAG graph needs the full parent chain, which only holds for the
+        // complete, unfiltered history; hide it while a filter is active.
+        let graph = if query.is_empty() {
+            let dag: Vec<(String, Vec<String>)> = commits
+                .iter()
+                .map(|c| (c.id.clone(), c.parents.clone()))
+                .collect();
+            Some(compute_graph(&dag))
+        } else {
+            None
+        };
+
         let mut list = self.commit_list.borrow_mut();
         list.set_rows(rows);
+        list.set_graph(graph);
         let new_pos = self
             .shown_commit
             .and_then(|c| self.visible.iter().position(|&i| i == c))
@@ -387,6 +402,8 @@ fn build_menu_bar(
 /// author and short date in the right-hand columns.
 pub fn commit_row(commit: &CommitInfo) -> CommitRow {
     CommitRow {
+        id: commit.id.clone(),
+        parents: commit.parents.clone(),
         summary: commit.summary.clone(),
         refs: commit.refs.clone(),
         author: commit.author_name.clone(),

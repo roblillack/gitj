@@ -8,7 +8,7 @@ use std::rc::Rc;
 use common::{snapshot_at_all_scales, snapshot_at_all_scales_with_events};
 use journey::backend::{Diff, DiffLine, DiffLineKind, FixtureBackend, RefKind, RefLabel};
 use journey::ui::GitClient;
-use journey::widgets::{CommitList, CommitRow, DiffView};
+use journey::widgets::{compute_graph, CommitList, CommitRow, DiffView};
 use retrogui::{
     Color, Container, Event, Key, Modifiers, MouseButton, NamedKey, Point, Rect, Widget,
 };
@@ -201,12 +201,14 @@ fn badge_rows() -> Vec<CommitRow> {
             refs: vec![r("main", RefKind::Head), r("v1.0", RefKind::Tag)],
             author: "Robert Lillack".into(),
             date: "2026-05-29 23:10".into(),
+            ..Default::default()
         },
         CommitRow {
             summary: "Fix scrollbar thumb minimum size".into(),
             refs: vec![r("feature/scroll", RefKind::LocalBranch)],
             author: "A. Hacker".into(),
             date: "2026-05-28 10:00".into(),
+            ..Default::default()
         },
         CommitRow {
             summary: "Merge remote-tracking branch".into(),
@@ -216,12 +218,14 @@ fn badge_rows() -> Vec<CommitRow> {
             ],
             author: "Build Bot".into(),
             date: "2026-05-27 09:00".into(),
+            ..Default::default()
         },
         CommitRow {
             summary: "Plain commit with no refs".into(),
             refs: vec![],
             author: "Robert Lillack".into(),
             date: "2026-05-26 08:00".into(),
+            ..Default::default()
         },
     ]
 }
@@ -250,6 +254,46 @@ fn commit_list_unfocused() {
         list.set_selected(Some(0));
         Box::new(
             Container::new(620, 90)
+                .with_background(Color::LIGHT_GRAY)
+                .add(SharedWidget(Box::new(list))),
+        )
+    });
+}
+
+/// A branchy DAG (fork + merge) with the graph gutter drawn: two lanes, a
+/// merge dot fanning out and a feature lane merging back.
+#[test]
+fn commit_list_graph() {
+    snapshot_at_all_scales("commit_list_graph", 560, 130, || {
+        let row = |id: &str, parents: &[&str], summary: &str, refs: Vec<RefLabel>| CommitRow {
+            id: id.into(),
+            parents: parents.iter().map(|p| p.to_string()).collect(),
+            summary: summary.into(),
+            refs,
+            author: "Robert Lillack".into(),
+            date: "2026-05-29 23:10".into(),
+        };
+        let head = |name: &str, kind| RefLabel {
+            name: name.to_string(),
+            kind,
+        };
+        let rows = vec![
+            row("m", &["e", "d"], "Merge feature into main", vec![head("main", RefKind::Head)]),
+            row("e", &["c"], "Main-line work", vec![]),
+            row("d", &["c"], "Feature tweak", vec![head("feature", RefKind::LocalBranch)]),
+            row("c", &["b"], "Shared base", vec![]),
+            row("b", &["a"], "Earlier change", vec![]),
+            row("a", &[], "Initial commit", vec![]),
+        ];
+        let dag: Vec<(String, Vec<String>)> =
+            rows.iter().map(|r| (r.id.clone(), r.parents.clone())).collect();
+
+        let mut list = CommitList::new(Rect::new(8, 8, 544, 114)).with_rows(rows);
+        list.set_graph(Some(compute_graph(&dag)));
+        list.set_selected(Some(0));
+        list.set_focused(true);
+        Box::new(
+            Container::new(560, 130)
                 .with_background(Color::LIGHT_GRAY)
                 .add(SharedWidget(Box::new(list))),
         )

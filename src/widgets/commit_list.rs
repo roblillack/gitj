@@ -16,6 +16,7 @@ use retrogui::{
 };
 
 use crate::backend::{RefKind, RefLabel};
+use crate::widgets::graph::{Graph, GraphRow};
 
 const ROW_HEIGHT: i32 = 18;
 const TEXT_PAD_X: i32 = 4;
@@ -25,13 +26,29 @@ const AUTHOR_COL_W: i32 = 120;
 const BADGE_GAP: i32 = 3;
 const DOUBLE_CLICK_MS: u64 = 400;
 
-/// Reserved width for the graph gutter at the left of each row. Zero until the
-/// DAG graph lands; kept as a named constant so the column math is ready.
-const GRAPH_W: i32 = 0;
+/// Logical width of one graph lane.
+const LANE_W: i32 = 14;
+
+/// gitk-style lane palette, indexed by lane column (wraps).
+const LANE_COLORS: [Color; 7] = [
+    Color::rgb(0x00, 0x80, 0x00),
+    Color::rgb(0xC0, 0x00, 0x00),
+    Color::rgb(0x00, 0x00, 0xC0),
+    Color::rgb(0xA0, 0x00, 0xA0),
+    Color::rgb(0x00, 0x80, 0x80),
+    Color::rgb(0xB0, 0x60, 0x00),
+    Color::rgb(0x50, 0x50, 0x50),
+];
+
+fn lane_color(col: usize) -> Color {
+    LANE_COLORS[col % LANE_COLORS.len()]
+}
 
 /// One commit's worth of row content.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct CommitRow {
+    pub id: String,
+    pub parents: Vec<String>,
     pub summary: String,
     pub refs: Vec<RefLabel>,
     pub author: String,
@@ -41,6 +58,9 @@ pub struct CommitRow {
 pub struct CommitList {
     rect: Rect,
     rows: Vec<CommitRow>,
+    /// Optional precomputed DAG layout, aligned 1:1 with `rows`. Present only
+    /// when showing full (unfiltered) history.
+    graph: Option<Graph>,
     selected: Option<usize>,
     focused: bool,
     v_scrollbar: ScrollBar,
@@ -54,12 +74,26 @@ impl CommitList {
         Self {
             rect,
             rows: Vec::new(),
+            graph: None,
             selected: None,
             focused: false,
             v_scrollbar: ScrollBar::vertical(Rect::new(0, 0, 0, 0)),
             activated: None,
             last_click: None,
             font_size: 12.0,
+        }
+    }
+
+    /// Attach (or clear) the DAG graph. Must be aligned with the current rows.
+    pub fn set_graph(&mut self, graph: Option<Graph>) {
+        self.graph = graph;
+    }
+
+    /// Logical width reserved for the graph gutter (0 when no graph).
+    fn graph_width(&self) -> i32 {
+        match &self.graph {
+            Some(g) => g.lane_count as i32 * LANE_W,
+            None => 0,
         }
     }
 
@@ -219,6 +253,7 @@ impl Widget for CommitList {
         let visible = self.visible_rows() as usize;
         let scroll_top = self.scroll_top();
         let row_right = text.right() - TEXT_PAD_X;
+        let graph_w = self.graph_width();
 
         for row_offset in 0..visible {
             let row = scroll_top + row_offset;
@@ -238,6 +273,13 @@ impl Widget for CommitList {
             }
             let fg = if active { theme.highlight_text } else { theme.text };
 
+            // Graph gutter, if present, in its own column at the far left.
+            if let Some(graph) = &self.graph
+                && let Some(grow) = graph.rows.get(row)
+            {
+                draw_graph_row(painter, grow, text_x, y);
+            }
+
             // Right-aligned date, then author column to its left.
             let date_size = painter.measure_text(&data.date, self.font_size);
             let date_x = row_right - date_size.w;
@@ -252,7 +294,7 @@ impl Widget for CommitList {
             painter.restore_clip(saved);
 
             // Left side: graph gutter (reserved), ref badges, then summary.
-            let mut x = text_x + GRAPH_W + 2;
+            let mut x = text_x + graph_w + 2;
             for r in &data.refs {
                 x += draw_badge(painter, x, y, &r.name, r.kind, self.font_size) + BADGE_GAP;
             }
@@ -357,6 +399,67 @@ impl Widget for CommitList {
             bounds.h,
         ));
         self.ensure_selection_visible();
+    }
+}
+
+/// Paint one row of the commit graph in the left gutter starting at `gutter_x`.
+fn draw_graph_row(painter: &mut Painter, row: &GraphRow, gutter_x: i32, y: i32) {
+    let lane_x = |col: usize| gutter_x + col as i32 * LANE_W + LANE_W / 2;
+    let top = y;
+    let center = y + ROW_HEIGHT / 2;
+    let bottom = y + ROW_HEIGHT;
+
+    // Top half: a lane at the top edge curving in to the row center. Color by
+    // the upper lane so a line keeps its color along its length.
+    for &(from, to) in &row.top {
+        draw_line(painter, lane_x(from), top, lane_x(to), center, lane_color(from));
+    }
+    // Bottom half: from the center down to a lane at the bottom edge. Color by
+    // the lower lane (the lane the segment becomes).
+    for &(from, to) in &row.bottom {
+        draw_line(painter, lane_x(from), center, lane_x(to), bottom, lane_color(to));
+    }
+    draw_dot(painter, lane_x(row.node_col), center, lane_color(row.node_col));
+}
+
+/// Bresenham line via single logical pixels (crisp at any DPI). Straight
+/// verticals use the faster `v_line`.
+fn draw_line(painter: &mut Painter, x0: i32, y0: i32, x1: i32, y1: i32, color: Color) {
+    if x0 == x1 {
+        let (a, b) = if y0 <= y1 { (y0, y1) } else { (y1, y0) };
+        painter.v_line(x0, a, b - a + 1, color);
+        return;
+    }
+    let dx = (x1 - x0).abs();
+    let dy = -(y1 - y0).abs();
+    let sx = if x0 < x1 { 1 } else { -1 };
+    let sy = if y0 < y1 { 1 } else { -1 };
+    let mut err = dx + dy;
+    let (mut x, mut y) = (x0, y0);
+    loop {
+        painter.pixel(x, y, color);
+        if x == x1 && y == y1 {
+            break;
+        }
+        let e2 = 2 * err;
+        if e2 >= dy {
+            err += dy;
+            x += sx;
+        }
+        if e2 <= dx {
+            err += dx;
+            y += sy;
+        }
+    }
+}
+
+/// A small filled commit dot.
+fn draw_dot(painter: &mut Painter, cx: i32, cy: i32, color: Color) {
+    let r = 3;
+    for dy in -r..=r {
+        // Half-width of the disc at this row (circle of radius r).
+        let hw = ((r * r - dy * dy) as f32).sqrt().round() as i32;
+        painter.h_line(cx - hw, cy + dy, hw * 2 + 1, color);
     }
 }
 
