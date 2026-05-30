@@ -85,6 +85,10 @@ impl FileChange {
 /// the [`DiffView`](crate::widgets::DiffView) widget.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DiffLineKind {
+    /// `commit <sha>` / `Author:` / `Date:` metadata, as `git show` prints
+    /// above the diff. Produced by the UI's commit-detail builder, never by
+    /// the raw diff renderer.
+    CommitHeader,
     /// `diff --git …`, `index …`, `--- a/…`, `+++ b/…` — file framing.
     FileHeader,
     /// `@@ -a,b +c,d @@` hunk header.
