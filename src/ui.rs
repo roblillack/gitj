@@ -135,14 +135,15 @@ impl GitClient {
         let file_list = Rc::new(RefCell::new(List::new(Rect::new(0, 0, 0, 0))));
         let diff_view = Rc::new(RefCell::new(DiffView::new(Rect::new(0, 0, 0, 0))));
 
-        // Add order sets the Tab focus order: search → commits → diff → files
-        // (the menu bar isn't focusable; it works via accelerators).
+        // Add order sets the Tab focus order: search → commits → files → diff
+        // (the menu bar isn't focusable; it works via accelerators). The file
+        // list follows the commit list so Tab walks the panes left-to-right.
         let browse_root = Shell::new()
             .add(build_browse_menu(commands.clone(), dialog.clone()), layout::browse_menu)
             .add(Shared::new(search.clone()), layout::browse_toolbar)
             .add(Shared::new(commit_list.clone()), layout::browse_history)
-            .add(Shared::new(diff_view.clone()), layout::browse_diff)
             .add(Shared::new(file_list.clone()), layout::browse_files)
+            .add(Shared::new(diff_view.clone()), layout::browse_diff)
             .add_overlay(Shared::new(dialog.clone()));
 
         // Commit-screen widgets.
