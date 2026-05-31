@@ -302,7 +302,7 @@ impl FixtureBackend {
                 (DiffLineKind::HunkHeader, "@@ -8,3 +8,4 @@ edition = \"2024\""),
                 (DiffLineKind::Context, " [dependencies]"),
                 (DiffLineKind::Addition, "+git2 = { version = \"0.18\", default-features = false }"),
-                (DiffLineKind::Context, " retrogui = { path = \"../retrofetch/retrogui\" }"),
+                (DiffLineKind::Context, " saudade = { path = \"../saudade\" }"),
             ],
         );
 

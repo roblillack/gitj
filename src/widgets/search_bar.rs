@@ -1,10 +1,10 @@
 //! A one-line search field with a leading "Find:" label.
 //!
-//! Wraps a retrogui [`TextInput`] and draws a label to its left, so the
+//! Wraps a saudade [`TextInput`] and draws a label to its left, so the
 //! toolbar reads clearly without needing a horizontal layout container. The
 //! app polls [`SearchBar::text`] after each event to drive live filtering.
 
-use retrogui::{Color, Event, EventCtx, Painter, Rect, TextInput, Theme, Widget};
+use saudade::{Color, Event, EventCtx, Painter, Rect, TextInput, Theme, Widget};
 
 const LABEL_W: i32 = 44;
 const PAD: i32 = 4;

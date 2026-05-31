@@ -3,11 +3,11 @@ name = "journey"
 version = "0.1.0"
 edition = "2024"
 
-# A gitk-style repository browser built on the retrogui toolkit.
-# See ../retrofetch/retrogui for the GUI library.
+# A gitk-style repository browser built on the saudade toolkit.
+# See ../saudade for the GUI library.
 
 [dependencies]
-retrogui = { path = "../retrofetch/retrogui" }
+saudade = { path = "../saudade" }
 git2 = { version = "0.18", default-features = false }
 
 [dev-dependencies]

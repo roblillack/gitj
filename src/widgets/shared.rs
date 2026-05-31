@@ -1,6 +1,6 @@
 //! A generic shared-ownership adapter.
 //!
-//! retrogui's widget tree takes ownership of each child (`Box<dyn Widget>`),
+//! saudade's widget tree takes ownership of each child (`Box<dyn Widget>`),
 //! but the app root needs to keep talking to individual widgets after they're
 //! in the tree — e.g. to push new items into a list when the selection
 //! elsewhere changes. The notepad/picker demos solve this with one bespoke
@@ -11,7 +11,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use retrogui::{Event, EventCtx, Painter, PopupRequest, Rect, Theme, Widget};
+use saudade::{Event, EventCtx, Painter, PopupRequest, Rect, Theme, Widget};
 
 /// Shared, interior-mutable handle to a widget that lives in the tree.
 pub struct Shared<W>(pub Rc<RefCell<W>>);

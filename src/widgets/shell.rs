@@ -1,17 +1,17 @@
 //! A generic flat-focus container — the engine behind both journey screens.
 //!
-//! retrogui's focus model is flat *per container*: a focusable widget nested
+//! saudade's focus model is flat *per container*: a focusable widget nested
 //! inside another container collapses to a single Tab stop. So journey keeps
 //! every pane a direct child of one `Shell`, which gives correct Tab cycling
 //! across all panes, lets the menu bar's Alt-accelerators reach it regardless
 //! of which pane has focus, and floats a modal dialog overlay over the whole
 //! window. The event / focus / capture / accelerator / overlay handling
-//! mirrors retrogui's `Column`; only the per-child placement differs, which is
+//! mirrors saudade's `Column`; only the per-child placement differs, which is
 //! why each child carries its own layout closure. The gitk browse screen and
 //! the git-gui commit screen are then just two different sets of placements
 //! (see [`crate::widgets::layout`]).
 
-use retrogui::{Color, Event, EventCtx, Painter, PopupRequest, Rect, Theme, Widget};
+use saudade::{Color, Event, EventCtx, Painter, PopupRequest, Rect, Theme, Widget};
 
 /// Computes a child's rectangle from the container's bounds.
 type Place = Box<dyn Fn(Rect) -> Rect>;
@@ -304,14 +304,14 @@ impl Widget for Shell {
     }
 }
 
-// Tab handling mirrors retrogui's internal `tab_action`, which isn't public.
+// Tab handling mirrors saudade's internal `tab_action`, which isn't public.
 enum TabKind {
     Cycle(i32),
     Swallow,
 }
 
 fn tab_action(event: &Event) -> Option<TabKind> {
-    use retrogui::{Key, NamedKey};
+    use saudade::{Key, NamedKey};
     match event {
         Event::KeyDown {
             key: Key::Named(NamedKey::Tab),

@@ -9,7 +9,7 @@ use common::{snapshot, snapshot_with_events};
 use journey::backend::{Diff, DiffLine, DiffLineKind, FixtureBackend, RefKind, RefLabel};
 use journey::ui::GitClient;
 use journey::widgets::{compute_graph, CommitList, CommitRow, DiffView};
-use retrogui::{
+use saudade::{
     Color, Container, Event, Key, Modifiers, MouseButton, NamedKey, Point, Rect, Widget,
 };
 
@@ -482,13 +482,13 @@ impl Widget for SharedWidget {
     fn bounds(&self) -> Rect {
         self.0.bounds()
     }
-    fn paint(&mut self, p: &mut retrogui::Painter, t: &retrogui::Theme) {
+    fn paint(&mut self, p: &mut saudade::Painter, t: &saudade::Theme) {
         self.0.paint(p, t);
     }
-    fn paint_overlay(&mut self, p: &mut retrogui::Painter, t: &retrogui::Theme) {
+    fn paint_overlay(&mut self, p: &mut saudade::Painter, t: &saudade::Theme) {
         self.0.paint_overlay(p, t);
     }
-    fn event(&mut self, e: &Event, c: &mut retrogui::EventCtx) {
+    fn event(&mut self, e: &Event, c: &mut saudade::EventCtx) {
         self.0.event(e, c);
     }
     fn captures_pointer(&self) -> bool {

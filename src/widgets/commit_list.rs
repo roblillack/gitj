@@ -2,15 +2,15 @@
 //! colored ref badges (branches, tags, HEAD) on the left and author / date
 //! columns on the right.
 //!
-//! It's a specialization of retrogui's `List`: the selection, scrolling and
+//! It's a specialization of saudade's `List`: the selection, scrolling and
 //! keyboard behavior are the same, but each row is custom-painted so the refs
 //! render as little colored boxes and a graph gutter can be slotted in front
-//! later (Phase 6). Kept in journey rather than retrogui because the row
+//! later (Phase 6). Kept in journey rather than saudade because the row
 //! content is git-specific.
 
 use std::time::{Duration, Instant};
 
-use retrogui::{
+use saudade::{
     Color, Event, EventCtx, Key, MouseButton, NamedKey, Painter, Point, Rect, ScrollBar,
     SCROLLBAR_THICKNESS, Theme, Widget,
 };

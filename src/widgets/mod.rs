@@ -1,4 +1,4 @@
-//! Git-specific widgets layered on top of retrogui's generic set.
+//! Git-specific widgets layered on top of saudade's generic set.
 
 mod commit_list;
 mod diff_view;

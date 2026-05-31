@@ -2,11 +2,11 @@
 //!
 //! `DiffView` renders a [`Diff`] line-by-line in the monospace font, tinting
 //! additions green, deletions red, hunk headers blue and file headers gray —
-//! the standard gitk / `git diff --color` palette adapted to retrogui's Win
+//! the standard gitk / `git diff --color` palette adapted to saudade's Win
 //! 3.1 chrome. It owns a vertical scrollbar pinned to the right edge and, like
-//! retrogui's `List`, only measures and paints the rows currently on screen.
+//! saudade's `List`, only measures and paints the rows currently on screen.
 
-use retrogui::{
+use saudade::{
     Color, Event, EventCtx, Key, MouseButton, NamedKey, Painter, Rect, ScrollBar,
     SCROLLBAR_THICKNESS, Theme, Widget,
 };

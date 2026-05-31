@@ -1,7 +1,7 @@
 # journey
 
 A gitk-style repository browser built on the
-[retrogui](../retrofetch/retrogui) toolkit — a Windows 3.1–flavored,
+[saudade](../saudade) toolkit — a Windows 3.1–flavored,
 software-rendered git history viewer.
 
 ```
@@ -97,12 +97,12 @@ abstraction, which keeps everything testable without a live repository.
 |--------|----------|
 | `backend` | `RepoBackend` trait + data types (`CommitInfo`, `FileChange`, `Diff`/`DiffLine`, `RefLabel`, `WorkingStatus`). Browse reads history/diffs; commit mode adds working-tree status, per-file diffs, `stage`/`unstage`, `commit` (with amend). Implementations: `Git2Backend` (live, libgit2) and `FixtureBackend` (deterministic, in-memory, with a simulated working tree). |
 | `widgets` | git-specific widgets — `CommitList` (graph + badges + columns), `DiffView` (colored diff), `SearchBar`, `Heading`, `graph` (DAG lane assignment); `Shell`, a generic flat-focus container, plus a `layout` module giving the browse and commit screens their rectangles; generic `Shared<W>` adapter. |
-| `ui` | `GitClient`, the top-level widget. It owns both screens (a `Shell` each), switches between them, and — since retrogui widgets are callback-free — polls selections and a small command queue after each event to rebuild dependent panes. |
+| `ui` | `GitClient`, the top-level widget. It owns both screens (a `Shell` each), switches between them, and — since saudade widgets are callback-free — polls selections and a small command queue after each event to rebuild dependent panes. |
 
 ## Testing
 
 * **Pixel snapshots** (`tests/snapshots.rs`) render the real UI through
-  retrogui's offscreen `MockBackend` at 1.0/1.25/1.5/2.0× against the
+  saudade's offscreen `MockBackend` at 1.0/1.25/1.5/2.0× against the
   in-memory `FixtureBackend` and bundled DejaVu fonts, comparing PNG bytes
   with `insta`. Regenerate with `INSTA_UPDATE=always cargo test --test
   snapshots`, then review with `cargo insta review`.

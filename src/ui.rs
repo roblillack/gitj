@@ -6,7 +6,7 @@
 //! * **Commit** — a `git gui`-style staging screen (unstaged / staged file
 //!   lists, a per-file diff, a message editor and a commit button).
 //!
-//! retrogui widgets are callback-free, so the cross-pane wiring is done here:
+//! saudade widgets are callback-free, so the cross-pane wiring is done here:
 //! after each event the active screen's selections (and a small command queue
 //! menus/buttons push into) are polled, and dependent panes are rebuilt from
 //! the [`RepoBackend`].
@@ -14,7 +14,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use retrogui::{
+use saudade::{
     Button, Checkbox, Dialog, Event, EventCtx, List, ListItem, Menu, MenuBar, MenuItem, Painter,
     PopupRequest, Rect, TextEditor, Theme, Widget,
 };
@@ -827,7 +827,7 @@ fn about_item(dialog: &Rc<RefCell<Dialog>>) -> MenuItem {
     MenuItem::action("&About", move |cx| {
         dialog.borrow_mut().show_info(
             "About Journey",
-            "Journey\n\nA gitk-style repository browser\nbuilt on the retrogui toolkit.",
+            "Journey\n\nA gitk-style repository browser\nbuilt on the saudade toolkit.",
         );
         cx.request_paint();
     })

@@ -4,7 +4,7 @@
 //! one of these functions with the container bounds, so the browse (gitk) and
 //! commit (git-gui) layouts are simply two sets of rectangles.
 
-use retrogui::Rect;
+use saudade::Rect;
 
 // ---- browse (gitk) layout -------------------------------------------------
 

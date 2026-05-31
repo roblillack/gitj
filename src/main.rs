@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 use journey::backend::{Git2Backend, RepoBackend};
 use journey::ui::GitClient;
-use retrogui::{App, Theme, WindowConfig};
+use saudade::{App, Theme, WindowConfig};
 
 const WINDOW_W: i32 = 900;
 const WINDOW_H: i32 = 640;

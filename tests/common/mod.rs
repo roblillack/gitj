@@ -1,12 +1,12 @@
 //! Helpers shared by journey's snapshot tests.
 //!
-//! Mirrors retrogui's harness: every widget tree is rendered against the
+//! Mirrors saudade's harness: every widget tree is rendered against the
 //! bundled DejaVu fonts (so glyph rasterization is bit-identical regardless of
 //! the host's installed fonts) and compared to a checked-in PNG baseline via
 //! `insta::assert_binary_snapshot!`. Review diffs with `cargo insta review`.
 
-use retrogui::mock::MockBackend;
-use retrogui::{Event, Font, Widget};
+use saudade::mock::MockBackend;
+use saudade::{Event, Font, Widget};
 
 pub fn sans_font() -> Font {
     Font::from_bytes(include_bytes!("../fonts/DejaVuSans.ttf").to_vec())
@@ -19,7 +19,7 @@ pub fn mono_font() -> Font {
 }
 
 /// The single scale every snapshot is captured at. We only keep 1.0x baselines:
-/// fractional/integer scaling is exercised by retrogui's own harness, so storing
+/// fractional/integer scaling is exercised by saudade's own harness, so storing
 /// per-resolution copies here just multiplies the checked-in PNGs for no gain.
 const SCALE: f32 = 1.0;
 

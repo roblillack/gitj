@@ -1,11 +1,11 @@
 //! A tiny section heading for the commit screen.
 //!
-//! retrogui's `Label` is positioned absolutely at construction and ignores
-//! `layout()`, so it can't reflow inside a resizable shell. `Heading` is a
-//! minimal left-aligned, vertically-centered text widget that honors
-//! `layout()` and whose text can be updated (e.g. to show a live file count).
+//! saudade's `Label` honors `layout()` but anchors its text at the slot's
+//! top-left corner. `Heading` is a minimal left-aligned, *vertically-centered*
+//! text widget that honors `layout()` and whose text can be updated (e.g. to
+//! show a live file count).
 
-use retrogui::{Painter, Rect, Theme, Widget};
+use saudade::{Painter, Rect, Theme, Widget};
 
 pub struct Heading {
     rect: Rect,
