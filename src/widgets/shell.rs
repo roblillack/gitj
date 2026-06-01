@@ -23,7 +23,7 @@ struct Child {
 
 pub struct Shell {
     bounds: Rect,
-    background: Color,
+    background: Option<Color>,
     children: Vec<Child>,
     overlays: Vec<Box<dyn Widget>>,
     captured: Option<usize>,
@@ -34,12 +34,20 @@ impl Shell {
     pub fn new() -> Self {
         Self {
             bounds: Rect::new(0, 0, 0, 0),
-            background: Color::LIGHT_GRAY,
+            background: Some(Color::LIGHT_GRAY),
             children: Vec::new(),
             overlays: Vec::new(),
             captured: None,
             focused: None,
         }
+    }
+
+    /// Drop the solid background fill so the window's desktop pattern shows
+    /// through the gaps between panes — the git-gui-style commit screen floats
+    /// its widgets on the patterned background rather than a flat fill.
+    pub fn no_background(mut self) -> Self {
+        self.background = None;
+        self
     }
 
     /// Add a child positioned by `place`. Call order also sets the keyboard
@@ -178,7 +186,9 @@ impl Widget for Shell {
     }
 
     fn paint(&mut self, painter: &mut Painter, theme: &Theme) {
-        painter.fill_rect(self.bounds, self.background);
+        if let Some(background) = self.background {
+            painter.fill_rect(self.bounds, background);
+        }
         for child in &mut self.children {
             child.widget.paint(painter, theme);
         }

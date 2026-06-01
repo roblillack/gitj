@@ -16,6 +16,10 @@ pub const TOOLBAR_H: i32 = 26;
 pub const FILES_W: i32 = 300;
 /// Fraction of the content height given to the history pane.
 pub const HISTORY_FRAC: f32 = 0.46;
+/// Slight breathing room around — and between — the three browse panes
+/// (history, files, diff), so they don't run into each other or the window
+/// edge.
+pub const BROWSE_PAD: i32 = 4;
 
 pub fn browse_menu(b: Rect) -> Rect {
     Rect::new(b.x, b.y, b.w, MENU_H)
@@ -25,34 +29,57 @@ pub fn browse_toolbar(b: Rect) -> Rect {
     Rect::new(b.x, b.y + MENU_H, b.w, TOOLBAR_H)
 }
 
+/// Top of the padded three-pane content area, below the menu and toolbar.
+fn content_y(b: Rect) -> i32 {
+    b.y + MENU_H + TOOLBAR_H + BROWSE_PAD
+}
+
+/// Height available to the three panes, after top and bottom padding.
+fn content_h(b: Rect) -> i32 {
+    (b.h - MENU_H - TOOLBAR_H - 2 * BROWSE_PAD).max(0)
+}
+
+/// Height of the history pane: a fraction of the content area, leaving a gap
+/// above the lower (files + diff) band.
+fn history_h(b: Rect) -> i32 {
+    let avail = (content_h(b) - BROWSE_PAD).max(0);
+    (avail as f32 * HISTORY_FRAC).round() as i32
+}
+
 pub fn browse_history(b: Rect) -> Rect {
-    let content_y = b.y + MENU_H + TOOLBAR_H;
-    let content_h = (b.h - MENU_H - TOOLBAR_H).max(0);
-    let history_h = (content_h as f32 * HISTORY_FRAC).round() as i32;
-    Rect::new(b.x, content_y, b.w, history_h)
+    Rect::new(
+        b.x + BROWSE_PAD,
+        content_y(b),
+        (b.w - 2 * BROWSE_PAD).max(0),
+        history_h(b),
+    )
 }
 
 pub fn browse_files(b: Rect) -> Rect {
     let (lower_y, lower_h) = lower_band(b);
-    let files_w = clamp_files_w(b);
-    Rect::new(b.x, lower_y, files_w, lower_h)
+    Rect::new(b.x + BROWSE_PAD, lower_y, clamp_files_w(b), lower_h)
 }
 
 pub fn browse_diff(b: Rect) -> Rect {
     let (lower_y, lower_h) = lower_band(b);
     let files_w = clamp_files_w(b);
-    Rect::new(b.x + files_w, lower_y, (b.w - files_w).max(0), lower_h)
+    let diff_x = b.x + 2 * BROWSE_PAD + files_w;
+    let diff_w = (b.w - files_w - 3 * BROWSE_PAD).max(0);
+    Rect::new(diff_x, lower_y, diff_w, lower_h)
 }
 
+/// The (top, height) of the lower band holding the files and diff panes, below
+/// the history pane and the gap under it.
 fn lower_band(b: Rect) -> (i32, i32) {
-    let content_y = b.y + MENU_H + TOOLBAR_H;
-    let content_h = (b.h - MENU_H - TOOLBAR_H).max(0);
-    let history_h = (content_h as f32 * HISTORY_FRAC).round() as i32;
-    (content_y + history_h, (content_h - history_h).max(0))
+    let lower_y = content_y(b) + history_h(b) + BROWSE_PAD;
+    let lower_h = (content_h(b) - history_h(b) - BROWSE_PAD).max(0);
+    (lower_y, lower_h)
 }
 
+/// Width of the files pane, clamped so the diff pane keeps a usable minimum
+/// once the inter-pane gap is accounted for.
 fn clamp_files_w(b: Rect) -> i32 {
-    FILES_W.min((b.w - 80).max(0))
+    FILES_W.min((b.w - 3 * BROWSE_PAD - 80).max(0))
 }
 
 // ---- commit (git-gui) layout ----------------------------------------------

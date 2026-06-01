@@ -140,7 +140,10 @@ impl GitClient {
         // Add order sets the Tab focus order: search → commits → files → diff
         // (the menu bar isn't focusable; it works via accelerators). The file
         // list follows the commit list so Tab walks the panes left-to-right.
+        // No flat background fill: the panes float on the window's desktop
+        // pattern, which shows through the padding around them.
         let browse_root = Shell::new()
+            .no_background()
             .add(
                 build_browse_menu(commands.clone(), dialog.clone()),
                 layout::browse_menu,
@@ -163,7 +166,10 @@ impl GitClient {
             "Amend last commit",
         )));
 
+        // No flat background fill: the staging panes float on the window's
+        // desktop pattern (git-gui style), which shows through the gaps.
         let commit_root = Shell::new()
+            .no_background()
             .add(
                 build_commit_menu(commands.clone(), dialog.clone()),
                 layout::commit_menu,
