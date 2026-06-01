@@ -246,8 +246,16 @@ pub trait RepoBackend {
     /// the working copy from the index — `git checkout -- <path>`, the
     /// destructive half of `git gui`'s "Revert Changes". Only the
     /// working-vs-index delta is dropped; any *staged* changes to the same path
-    /// are preserved. Untracked files have no index entry and are left as-is.
+    /// are preserved. Untracked files have no index entry to restore from; use
+    /// [`delete_untracked`](Self::delete_untracked) for those.
     fn revert(&self, path: &str) -> Result<(), String>;
+
+    /// Delete an untracked file from the working tree. This is the "revert" a
+    /// brand-new file gets: it isn't in the index or `HEAD`, so the only way to
+    /// undo its appearance is to remove it. The content is gone for good — git
+    /// never had a copy. The caller is responsible for only passing untracked
+    /// paths.
+    fn delete_untracked(&self, path: &str) -> Result<(), String>;
 
     /// Commit the staged changes with `message`. When `amend` is set, replace
     /// the current `HEAD` commit instead of adding a new one.

@@ -210,6 +210,14 @@ impl RepoBackend for Git2Backend {
             .map_err(err_msg)
     }
 
+    fn delete_untracked(&self, path: &str) -> Result<(), String> {
+        let workdir = self
+            .repo
+            .workdir()
+            .ok_or_else(|| "bare repository has no working tree".to_string())?;
+        std::fs::remove_file(workdir.join(path)).map_err(|e| e.to_string())
+    }
+
     fn commit(&self, message: &str, amend: bool) -> Result<(), String> {
         if message.trim().is_empty() {
             return Err("Please enter a commit message.".into());

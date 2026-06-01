@@ -177,6 +177,39 @@ fn ctrl_j_then_confirm_reverts_the_selected_file() {
 }
 
 #[test]
+fn ctrl_j_on_untracked_then_confirm_deletes_the_file() {
+    let (be, backend, mut w) = commit_client();
+    // Move the selection off src/ui.rs onto the untracked notes.md.
+    backend.dispatch(
+        w.as_mut(),
+        &Event::KeyDown {
+            key: Key::Named(NamedKey::Down),
+            modifiers: Modifiers::default(),
+        },
+    );
+    assert!(
+        be.working_status(false)
+            .unstaged
+            .iter()
+            .any(|f| f.path == "notes.md")
+    );
+
+    backend.dispatch(w.as_mut(), &ctrl_char('j'));
+    let _ = backend.render(w.as_mut());
+    // Click the affirmative "Delete File" button (the left of the two).
+    backend.dispatch(w.as_mut(), &click(367, 320));
+    backend.dispatch(w.as_mut(), &release(367, 320));
+
+    assert!(
+        !be.working_status(false)
+            .unstaged
+            .iter()
+            .any(|f| f.path == "notes.md"),
+        "confirming should delete the untracked notes.md"
+    );
+}
+
+#[test]
 fn ctrl_q_requests_window_close() {
     let (_be, backend, mut w) = commit_client();
     let outcome = backend.dispatch(w.as_mut(), &ctrl_char('q'));

@@ -213,6 +213,35 @@ fn commit_mode_revert_confirm() {
     );
 }
 
+/// Ctrl+J on an *untracked* file (selected with Down) offers to delete it
+/// instead of reverting — there's no committed or staged copy to fall back to,
+/// so the only way to undo a brand-new file is to remove it.
+#[test]
+fn commit_mode_delete_untracked_confirm() {
+    snapshot_with_events(
+        "commit_mode_delete_untracked_confirm",
+        CW,
+        CH,
+        || {
+            let mut client = sample_client();
+            client.enter_commit_mode();
+            Box::new(client)
+        },
+        || {
+            vec![
+                key(NamedKey::Down), // move off src/ui.rs onto notes.md (untracked)
+                Event::KeyDown {
+                    key: Key::Char('j'),
+                    modifiers: Modifiers {
+                        control: true,
+                        ..Modifiers::default()
+                    },
+                },
+            ]
+        },
+    );
+}
+
 /// Click into the message editor and type a commit message.
 #[test]
 fn commit_mode_message() {

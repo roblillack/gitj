@@ -125,6 +125,59 @@ fn fixture_revert_discards_unstaged_only() {
 }
 
 #[test]
+fn fixture_delete_untracked_removes_the_file() {
+    let be = FixtureBackend::sample();
+    assert!(
+        be.working_status(false)
+            .unstaged
+            .iter()
+            .any(|f| f.path == "notes.md")
+    );
+
+    // Deleting the untracked file takes it out of the working set.
+    be.delete_untracked("notes.md").unwrap();
+    assert!(
+        !be.working_status(false)
+            .unstaged
+            .iter()
+            .any(|f| f.path == "notes.md")
+    );
+
+    // It only removes untracked files — a tracked path is left in place.
+    be.delete_untracked("src/ui.rs").unwrap();
+    assert!(
+        be.working_status(false)
+            .unstaged
+            .iter()
+            .any(|f| f.path == "src/ui.rs")
+    );
+}
+
+#[test]
+fn git2_delete_untracked_removes_file_from_workdir() {
+    let dir = scratch_dir("delete");
+    Repository::init(&dir).unwrap();
+    fs::write(dir.join("new.txt"), "fresh\n").unwrap();
+    let backend = Git2Backend::open(dir.to_str().unwrap()).unwrap();
+    assert!(
+        backend
+            .working_status(false)
+            .unstaged
+            .iter()
+            .any(|f| f.path == "new.txt" && f.status == ChangeStatus::Untracked)
+    );
+
+    backend.delete_untracked("new.txt").unwrap();
+    assert!(
+        !dir.join("new.txt").exists(),
+        "the untracked file should be removed from disk"
+    );
+    assert!(backend.working_status(false).is_clean());
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn git2_revert_discards_working_changes() {
     let dir = scratch_dir("revert");
     let repo = Repository::init(&dir).unwrap();

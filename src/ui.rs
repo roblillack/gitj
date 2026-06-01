@@ -78,11 +78,19 @@ enum AppCommand {
     UnstageSelected,
     /// Ask to revert the selected unstaged file (pops the confirm dialog).
     RevertSelected,
-    /// The confirm dialog's affirmative button fired — actually revert
-    /// `pending_revert`.
-    PerformRevert,
+    /// The confirm dialog's affirmative button fired — carry out the armed
+    /// `pending_discard`.
+    PerformDiscard,
     SignOff,
     Commit,
+}
+
+/// A discard armed by [`GitClient::revert_selected`] and awaiting the user's
+/// confirmation: revert a tracked file to its index copy, or delete an
+/// untracked file outright (it has nothing to revert to).
+enum PendingDiscard {
+    Revert(String),
+    Delete(String),
 }
 
 pub struct GitClient {
@@ -130,9 +138,10 @@ pub struct GitClient {
     prev_unstaged_sel: Option<usize>,
     prev_staged_sel: Option<usize>,
     last_amend: bool,
-    /// The path awaiting a revert, set when the confirm dialog is shown and
-    /// consumed when its affirmative button drives `AppCommand::PerformRevert`.
-    pending_revert: Option<String>,
+    /// The discard awaiting confirmation, set when the confirm dialog is shown
+    /// and consumed when its affirmative button drives
+    /// `AppCommand::PerformDiscard`.
+    pending_discard: Option<PendingDiscard>,
 }
 
 impl GitClient {
@@ -248,7 +257,7 @@ impl GitClient {
             prev_unstaged_sel: None,
             prev_staged_sel: None,
             last_amend: false,
-            pending_revert: None,
+            pending_discard: None,
         };
         client.sync_browse(true);
         client
@@ -317,7 +326,7 @@ impl GitClient {
                 AppCommand::StageAll => self.stage_all(),
                 AppCommand::UnstageSelected => self.unstage_selected(),
                 AppCommand::RevertSelected => self.revert_selected(),
-                AppCommand::PerformRevert => self.perform_revert(),
+                AppCommand::PerformDiscard => self.perform_discard(),
                 AppCommand::SignOff => self.sign_off(),
                 AppCommand::Commit => self.do_commit(),
             };
@@ -752,9 +761,10 @@ impl GitClient {
 
     /// `git gui`'s "Revert Changes" (Ctrl+J): discard the working-tree changes
     /// to the selected *unstaged* file. Because the change can't be undone, this
-    /// only arms the operation — it stashes the path and pops a confirm dialog
-    /// whose affirmative button drives [`AppCommand::PerformRevert`]. Untracked
-    /// files have no committed/staged version to restore, so they're skipped.
+    /// only arms the operation — it stashes what to do and pops a confirm dialog
+    /// whose affirmative button drives [`AppCommand::PerformDiscard`]. A tracked
+    /// file is reverted to its index copy; an untracked file (no committed or
+    /// staged version to fall back to) is instead offered up for deletion.
     fn revert_selected(&mut self) -> bool {
         let Some(i) = self.unstaged_list.borrow().selected_index() else {
             return false;
@@ -762,34 +772,50 @@ impl GitClient {
         let Some(file) = self.working.unstaged.get(i) else {
             return false;
         };
-        if file.status == ChangeStatus::Untracked {
-            return false;
-        }
         let display = file.display();
-        self.pending_revert = Some(file.path.clone());
+        let path = file.path.clone();
+        let (title, message, affirm) = if file.status == ChangeStatus::Untracked {
+            self.pending_discard = Some(PendingDiscard::Delete(path));
+            (
+                "Delete File",
+                format!(
+                    "Delete untracked file\n{display}?\n\nIt is not tracked by git and cannot be recovered."
+                ),
+                "Delete File",
+            )
+        } else {
+            self.pending_discard = Some(PendingDiscard::Revert(path));
+            (
+                "Revert Changes",
+                format!(
+                    "Revert unstaged changes in\n{display}?\n\nThese changes will be permanently lost."
+                ),
+                "Revert Changes",
+            )
+        };
 
         let commands = self.commands.clone();
-        self.dialog.borrow_mut().show_confirm(
-            "Revert Changes",
-            format!(
-                "Revert unstaged changes in\n{display}?\n\nThese changes will be permanently lost."
-            ),
-            "Revert Changes",
-            move |cx| {
-                commands.borrow_mut().push(AppCommand::PerformRevert);
+        self.dialog
+            .borrow_mut()
+            .show_confirm(title, message, affirm, move |cx| {
+                commands.borrow_mut().push(AppCommand::PerformDiscard);
                 cx.request_paint();
-            },
-        );
+            });
         true
     }
 
-    /// Carry out the revert the user confirmed in [`Self::revert_selected`].
-    fn perform_revert(&mut self) -> bool {
-        let Some(path) = self.pending_revert.take() else {
-            return false;
+    /// Carry out the revert / delete the user confirmed in
+    /// [`Self::revert_selected`].
+    fn perform_discard(&mut self) -> bool {
+        let (failure, result) = match self.pending_discard.take() {
+            Some(PendingDiscard::Revert(path)) => ("Revert failed", self.backend.revert(&path)),
+            Some(PendingDiscard::Delete(path)) => {
+                ("Delete failed", self.backend.delete_untracked(&path))
+            }
+            None => return false,
         };
-        if let Err(e) = self.backend.revert(&path) {
-            self.dialog.borrow_mut().show_error("Revert failed", &e);
+        if let Err(e) = result {
+            self.dialog.borrow_mut().show_error(failure, &e);
         }
         self.rescan();
         true

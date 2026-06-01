@@ -499,6 +499,15 @@ impl RepoBackend for FixtureBackend {
         Ok(())
     }
 
+    fn delete_untracked(&self, path: &str) -> Result<(), String> {
+        // Removing the untracked file takes it out of the simulated working
+        // tree entirely.
+        self.working.borrow_mut().retain(|e| {
+            !(e.change.path == path && !e.staged && e.change.status == ChangeStatus::Untracked)
+        });
+        Ok(())
+    }
+
     fn commit(&self, message: &str, amend: bool) -> Result<(), String> {
         if message.trim().is_empty() {
             return Err("Please enter a commit message.".into());
