@@ -15,15 +15,15 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use saudade::{
-    Button, Checkbox, Dialog, Event, EventCtx, List, ListItem, Menu, MenuBar, MenuItem, Painter,
-    PopupRequest, Rect, TextEditor, Theme, Widget,
+    Button, Checkbox, Dialog, Event, EventCtx, Key, List, ListItem, Menu, MenuBar, MenuItem,
+    NamedKey, Painter, PopupRequest, Rect, TextEditor, Theme, Widget,
 };
 
 use crate::backend::{
     CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, RefKind, RepoBackend, WorkingStatus,
 };
 use crate::widgets::{
-    compute_graph, layout, CommitList, CommitRow, DiffView, Heading, SearchBar, Shared, Shell,
+    CommitList, CommitRow, DiffView, Heading, SearchBar, Shared, Shell, compute_graph, layout,
 };
 
 /// Direct-child index of the history list in the browse shell (focused first).
@@ -73,7 +73,9 @@ enum AppCommand {
     EnterBrowseMode,
     Rescan,
     StageSelected,
+    StageAll,
     UnstageSelected,
+    SignOff,
     Commit,
 }
 
@@ -139,7 +141,10 @@ impl GitClient {
         // (the menu bar isn't focusable; it works via accelerators). The file
         // list follows the commit list so Tab walks the panes left-to-right.
         let browse_root = Shell::new()
-            .add(build_browse_menu(commands.clone(), dialog.clone()), layout::browse_menu)
+            .add(
+                build_browse_menu(commands.clone(), dialog.clone()),
+                layout::browse_menu,
+            )
             .add(Shared::new(search.clone()), layout::browse_toolbar)
             .add(Shared::new(commit_list.clone()), layout::browse_history)
             .add(Shared::new(file_list.clone()), layout::browse_files)
@@ -159,10 +164,22 @@ impl GitClient {
         )));
 
         let commit_root = Shell::new()
-            .add(build_commit_menu(commands.clone(), dialog.clone()), layout::commit_menu)
-            .add(Shared::new(unstaged_heading.clone()), layout::commit_unstaged_label)
-            .add(Shared::new(unstaged_list.clone()), layout::commit_unstaged_list)
-            .add(Shared::new(staged_heading.clone()), layout::commit_staged_label)
+            .add(
+                build_commit_menu(commands.clone(), dialog.clone()),
+                layout::commit_menu,
+            )
+            .add(
+                Shared::new(unstaged_heading.clone()),
+                layout::commit_unstaged_label,
+            )
+            .add(
+                Shared::new(unstaged_list.clone()),
+                layout::commit_unstaged_list,
+            )
+            .add(
+                Shared::new(staged_heading.clone()),
+                layout::commit_staged_label,
+            )
             .add(Shared::new(staged_list.clone()), layout::commit_staged_list)
             .add(
                 command_button("Stage \u{2192}", &commands, AppCommand::StageSelected),
@@ -281,7 +298,9 @@ impl GitClient {
                     true
                 }
                 AppCommand::StageSelected => self.stage_selected(),
+                AppCommand::StageAll => self.stage_all(),
                 AppCommand::UnstageSelected => self.unstage_selected(),
+                AppCommand::SignOff => self.sign_off(),
                 AppCommand::Commit => self.do_commit(),
             };
         }
@@ -463,7 +482,11 @@ impl GitClient {
         let new_pos = self
             .shown
             .and_then(|s| self.rows.iter().position(|&r| r == s))
-            .or_else(|| self.rows.iter().position(|r| matches!(r, RowRef::Commit(_))))
+            .or_else(|| {
+                self.rows
+                    .iter()
+                    .position(|r| matches!(r, RowRef::Commit(_)))
+            })
             .or(if self.rows.is_empty() { None } else { Some(0) });
 
         let mut list = self.commit_list.borrow_mut();
@@ -523,9 +546,10 @@ impl GitClient {
         let staged: Vec<ListItem> = self.working.staged.iter().map(file_row).collect();
         self.unstaged_list.borrow_mut().set_items(unstaged);
         self.staged_list.borrow_mut().set_items(staged);
-        self.unstaged_heading
-            .borrow_mut()
-            .set_text(format!("Unstaged Changes ({})", self.working.unstaged.len()));
+        self.unstaged_heading.borrow_mut().set_text(format!(
+            "Unstaged Changes ({})",
+            self.working.unstaged.len()
+        ));
         self.staged_heading.borrow_mut().set_text(format!(
             "Staged Changes — will commit ({})",
             self.working.staged.len()
@@ -634,6 +658,48 @@ impl GitClient {
         }
     }
 
+    /// Stage every unstaged file (git gui's "Stage Changed Files To Commit").
+    fn stage_all(&mut self) -> bool {
+        if self.working.unstaged.is_empty() {
+            return false;
+        }
+        let paths: Vec<String> = self
+            .working
+            .unstaged
+            .iter()
+            .map(|f| f.path.clone())
+            .collect();
+        for path in paths {
+            if let Err(e) = self.backend.stage(&path) {
+                self.dialog.borrow_mut().show_error("Stage failed", &e);
+                break;
+            }
+        }
+        self.rescan();
+        true
+    }
+
+    /// Append a `Signed-off-by` trailer for the configured identity to the
+    /// message editor (git gui's "Sign Off").
+    fn sign_off(&mut self) -> bool {
+        let Some((name, email)) = self.backend.signature() else {
+            self.dialog.borrow_mut().show_error(
+                "Sign off",
+                "No git identity configured. Set user.name and user.email.",
+            );
+            return true;
+        };
+        let body = self.message_editor.borrow().text();
+        match with_signoff(&body, &name, &email) {
+            Some(text) => {
+                self.message_editor.borrow_mut().set_text(&text);
+                true
+            }
+            // Already signed off — nothing to change.
+            None => false,
+        }
+    }
+
     fn unstage_selected(&mut self) -> bool {
         let sel = self.staged_list.borrow().selected_index();
         match sel {
@@ -699,6 +765,53 @@ impl GitClient {
         }
         true
     }
+
+    /// `git gui`-style keyboard accelerators, handled before the active screen
+    /// sees the event so they fire regardless of which pane holds focus — in
+    /// particular Ctrl+Enter commits instead of inserting a newline in the
+    /// message editor. Returns `true` when the keystroke was consumed.
+    fn handle_shortcut(&mut self, event: &Event, ctx: &mut EventCtx) -> bool {
+        // While a modal dialog is up it owns the keyboard.
+        if self.dialog.borrow().is_open() {
+            return false;
+        }
+        let Event::KeyDown { key, modifiers } = event else {
+            return false;
+        };
+        // Only plain Ctrl-chords; Alt / Logo combos belong to the menu bar / OS.
+        if !modifiers.control || modifiers.alt || modifiers.logo {
+            return false;
+        }
+
+        let letter = match key {
+            Key::Char(c) => Some(c.to_ascii_lowercase()),
+            _ => None,
+        };
+
+        // Ctrl+Q quits from either screen (git gui binds quit globally).
+        if letter == Some('q') {
+            ctx.close();
+            return true;
+        }
+
+        // The remaining accelerators drive the staging screen.
+        if self.mode != Mode::Commit {
+            return false;
+        }
+        let command = if matches!(key, Key::Named(NamedKey::Enter)) {
+            AppCommand::Commit
+        } else {
+            match letter {
+                Some('r') => AppCommand::Rescan,
+                Some('t') => AppCommand::StageSelected,
+                Some('i') => AppCommand::StageAll,
+                Some('s') => AppCommand::SignOff,
+                _ => return false,
+            }
+        };
+        self.commands.borrow_mut().push(command);
+        true
+    }
 }
 
 impl Widget for GitClient {
@@ -715,7 +828,10 @@ impl Widget for GitClient {
     }
 
     fn event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.active_mut().event(event, ctx);
+        // Application accelerators take precedence over the focused pane.
+        if !self.handle_shortcut(event, ctx) {
+            self.active_mut().event(event, ctx);
+        }
         // After the tree processes the event, apply commands and sync the
         // active screen's dependent panes.
         let mut dirty = self.drain_commands();
@@ -766,49 +882,66 @@ impl Widget for GitClient {
 
 /// Build the browse-screen menu bar: File ▸ Reload / Exit, View ▸ Commit
 /// Changes (switch screens), Help ▸ About.
-fn build_browse_menu(commands: Rc<RefCell<Vec<AppCommand>>>, dialog: Rc<RefCell<Dialog>>) -> MenuBar {
+fn build_browse_menu(
+    commands: Rc<RefCell<Vec<AppCommand>>>,
+    dialog: Rc<RefCell<Dialog>>,
+) -> MenuBar {
     MenuBar::new(Rect::new(0, 0, 0, 0))
         .add_menu(Menu::new(
             "&File",
             vec![
                 cmd_item("&Reload", &commands, AppCommand::Reload),
                 MenuItem::separator(),
-                MenuItem::action("E&xit", |cx| cx.close()),
+                MenuItem::action("E&xit", |cx| cx.close()).with_accel("Ctrl+Q"),
             ],
         ))
         .add_menu(Menu::new(
             "&View",
-            vec![cmd_item("&Commit Changes", &commands, AppCommand::EnterCommitMode)],
+            vec![cmd_item(
+                "&Commit Changes",
+                &commands,
+                AppCommand::EnterCommitMode,
+            )],
         ))
         .add_menu(Menu::new("&Help", vec![about_item(&dialog)]))
 }
 
 /// Build the commit-screen menu bar: File, Commit (the staging actions), View
 /// ▸ Browse History, Help.
-fn build_commit_menu(commands: Rc<RefCell<Vec<AppCommand>>>, dialog: Rc<RefCell<Dialog>>) -> MenuBar {
+fn build_commit_menu(
+    commands: Rc<RefCell<Vec<AppCommand>>>,
+    dialog: Rc<RefCell<Dialog>>,
+) -> MenuBar {
     MenuBar::new(Rect::new(0, 0, 0, 0))
         .add_menu(Menu::new(
             "&File",
             vec![
                 cmd_item("&Reload", &commands, AppCommand::Reload),
                 MenuItem::separator(),
-                MenuItem::action("E&xit", |cx| cx.close()),
+                MenuItem::action("E&xit", |cx| cx.close()).with_accel("Ctrl+Q"),
             ],
         ))
         .add_menu(Menu::new(
             "&Commit",
             vec![
-                cmd_item("&Rescan", &commands, AppCommand::Rescan),
+                cmd_item("&Rescan", &commands, AppCommand::Rescan).with_accel("Ctrl+R"),
                 MenuItem::separator(),
-                cmd_item("&Stage Selected", &commands, AppCommand::StageSelected),
+                cmd_item("&Stage Selected", &commands, AppCommand::StageSelected)
+                    .with_accel("Ctrl+T"),
+                cmd_item("Stage &All", &commands, AppCommand::StageAll).with_accel("Ctrl+I"),
                 cmd_item("&Unstage Selected", &commands, AppCommand::UnstageSelected),
                 MenuItem::separator(),
-                cmd_item("&Commit", &commands, AppCommand::Commit),
+                cmd_item("Sign &Off", &commands, AppCommand::SignOff).with_accel("Ctrl+S"),
+                cmd_item("&Commit", &commands, AppCommand::Commit).with_accel("Ctrl+Enter"),
             ],
         ))
         .add_menu(Menu::new(
             "&View",
-            vec![cmd_item("&Browse History", &commands, AppCommand::EnterBrowseMode)],
+            vec![cmd_item(
+                "&Browse History",
+                &commands,
+                AppCommand::EnterBrowseMode,
+            )],
         ))
         .add_menu(Menu::new("&Help", vec![about_item(&dialog)]))
 }
@@ -850,6 +983,37 @@ fn command_button(
 /// First 8 hex chars of a SHA, for compact parent display.
 fn short(sha: &str) -> String {
     sha.chars().take(8).collect()
+}
+
+/// The message text after appending a `Signed-off-by` trailer for `name` /
+/// `email`, or `None` when that exact trailer is already the last line. A prose
+/// body is separated from the trailer by a blank line; an existing trailer
+/// block keeps the sign-off tight against it (no blank line), matching git gui.
+fn with_signoff(body: &str, name: &str, email: &str) -> Option<String> {
+    let trailer = format!("Signed-off-by: {name} <{email}>");
+    let last_line = body.lines().next_back().unwrap_or("").trim_end();
+    if last_line.eq_ignore_ascii_case(&trailer) {
+        return None;
+    }
+    let trimmed = body.trim_end();
+    Some(if trimmed.is_empty() {
+        trailer
+    } else if is_trailer_line(last_line) {
+        format!("{trimmed}\n{trailer}")
+    } else {
+        format!("{trimmed}\n\n{trailer}")
+    })
+}
+
+/// Does `line` look like an RFC-822-style commit trailer (`Signed-off-by:`,
+/// `Acked-by:`, …)? Used so a fresh sign-off stays tight against an existing
+/// trailer block rather than getting an extra blank line before it.
+fn is_trailer_line(line: &str) -> bool {
+    let Some((key, _)) = line.split_once(':') else {
+        return false;
+    };
+    let key = key.to_ascii_lowercase();
+    key.ends_with("-by") && key.chars().all(|c| c.is_ascii_alphabetic() || c == '-')
 }
 
 /// Build the display row for a working-tree pseudo-entry in the log.
@@ -909,4 +1073,52 @@ pub fn commit_row(commit: &CommitInfo) -> CommitRow {
 /// Format a changed file as a list row: status badge + path.
 pub fn file_row(file: &FileChange) -> ListItem {
     ListItem::new(format!("{}  {}", file.status.badge(), file.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_trailer_line, with_signoff};
+
+    const NAME: &str = "Ada Lovelace";
+    const EMAIL: &str = "ada@example.com";
+    const SOB: &str = "Signed-off-by: Ada Lovelace <ada@example.com>";
+
+    #[test]
+    fn signoff_into_empty_message_is_just_the_trailer() {
+        assert_eq!(with_signoff("", NAME, EMAIL).as_deref(), Some(SOB));
+        assert_eq!(with_signoff("   \n", NAME, EMAIL).as_deref(), Some(SOB));
+    }
+
+    #[test]
+    fn signoff_after_prose_gets_a_blank_separator_line() {
+        assert_eq!(
+            with_signoff("Fix the thing", NAME, EMAIL).as_deref(),
+            Some(format!("Fix the thing\n\n{SOB}").as_str())
+        );
+    }
+
+    #[test]
+    fn signoff_after_a_trailer_block_stays_tight() {
+        let body = "Fix the thing\n\nReviewed-by: B <b@example.com>";
+        assert_eq!(
+            with_signoff(body, NAME, EMAIL).as_deref(),
+            Some(format!("{body}\n{SOB}").as_str())
+        );
+    }
+
+    #[test]
+    fn signoff_is_idempotent_when_already_last_line() {
+        let body = format!("Fix the thing\n\n{SOB}");
+        assert_eq!(with_signoff(&body, NAME, EMAIL), None);
+    }
+
+    #[test]
+    fn trailer_lines_are_recognized() {
+        assert!(is_trailer_line("Signed-off-by: A <a@x>"));
+        assert!(is_trailer_line("Reviewed-by: B <b@x>"));
+        assert!(is_trailer_line("Co-authored-by: C <c@x>"));
+        assert!(!is_trailer_line("Just a normal sentence."));
+        assert!(!is_trailer_line("Fixes: #123"));
+        assert!(!is_trailer_line(""));
+    }
 }

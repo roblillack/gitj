@@ -1,0 +1,138 @@
+//! Behavioral tests for the `git gui`-style keyboard accelerators on the commit
+//! screen. Each test drives a real [`GitClient`] through synthetic events with
+//! saudade's [`MockBackend`] dispatcher and asserts the resulting working-tree
+//! / commit state — the same path the live runtime takes, minus the windowing.
+
+mod common;
+
+use std::rc::Rc;
+
+use journey::backend::{FixtureBackend, RepoBackend};
+use journey::ui::GitClient;
+use saudade::mock::MockBackend;
+use saudade::{Event, Key, Modifiers, MouseButton, NamedKey, Point, Widget};
+
+// The commit screen uses the same window size as its snapshots.
+const CW: i32 = 820;
+const CH: i32 = 560;
+
+fn ctrl(key: Key) -> Event {
+    Event::KeyDown {
+        key,
+        modifiers: Modifiers {
+            control: true,
+            ..Modifiers::default()
+        },
+    }
+}
+
+fn ctrl_char(c: char) -> Event {
+    ctrl(Key::Char(c))
+}
+
+fn click(x: i32, y: i32) -> Event {
+    Event::PointerDown {
+        pos: Point::new(x, y),
+        button: MouseButton::Left,
+    }
+}
+
+fn release(x: i32, y: i32) -> Event {
+    Event::PointerUp {
+        pos: Point::new(x, y),
+        button: MouseButton::Left,
+    }
+}
+
+fn type_text(w: &mut dyn Widget, backend: &MockBackend, s: &str) {
+    for ch in s.chars() {
+        backend.dispatch(
+            w,
+            &Event::Char {
+                ch,
+                modifiers: Modifiers::default(),
+            },
+        );
+    }
+}
+
+/// A commit-mode client, laid out and focused exactly as the live app would be
+/// after its first frame, plus a handle on its backing fixture for assertions.
+fn commit_client() -> (Rc<FixtureBackend>, MockBackend, Box<dyn Widget>) {
+    let be = Rc::new(FixtureBackend::sample());
+    let mut client = GitClient::new(be.clone());
+    client.enter_commit_mode();
+    let backend = MockBackend::new(CW, CH)
+        .with_scale(1.0)
+        .with_font(common::sans_font())
+        .with_mono_font(common::mono_font());
+    let mut widget: Box<dyn Widget> = Box::new(client);
+    // Warm-up render lays the tree out (and primes geometry caches), matching
+    // the state the live app is in before the user's first keystroke.
+    let _ = backend.render(widget.as_mut());
+    widget.focus_first();
+    (be, backend, widget)
+}
+
+#[test]
+fn ctrl_t_stages_the_selected_unstaged_file() {
+    let (be, backend, mut w) = commit_client();
+    // The first unstaged file (src/ui.rs) is auto-selected on entry.
+    assert!(
+        be.working_status(false)
+            .unstaged
+            .iter()
+            .any(|f| f.path == "src/ui.rs")
+    );
+
+    backend.dispatch(w.as_mut(), &ctrl_char('t'));
+
+    let ws = be.working_status(false);
+    assert!(
+        ws.staged.iter().any(|f| f.path == "src/ui.rs"),
+        "Ctrl+T should stage the selected file, got {ws:?}"
+    );
+    assert!(!ws.unstaged.iter().any(|f| f.path == "src/ui.rs"));
+}
+
+#[test]
+fn ctrl_i_stages_every_unstaged_file() {
+    let (be, backend, mut w) = commit_client();
+    assert_eq!(be.working_status(false).unstaged.len(), 2);
+
+    backend.dispatch(w.as_mut(), &ctrl_char('i'));
+
+    assert!(
+        be.working_status(false).unstaged.is_empty(),
+        "Ctrl+I should stage all changed files"
+    );
+}
+
+#[test]
+fn ctrl_enter_commits_with_the_typed_message() {
+    let (be, backend, mut w) = commit_client();
+    // Focus the message editor, type a message, then commit with Ctrl+Enter.
+    backend.dispatch(w.as_mut(), &click(420, 360));
+    backend.dispatch(w.as_mut(), &release(420, 360));
+    type_text(w.as_mut(), &backend, "Wire up commit shortcuts");
+
+    backend.dispatch(w.as_mut(), &ctrl(Key::Named(NamedKey::Enter)));
+
+    // Ctrl+Enter commits rather than inserting a newline, so the recorded
+    // message is exactly what was typed (single line, no trailing newline).
+    assert_eq!(
+        be.last_commit(),
+        Some(("Wire up commit shortcuts".to_string(), false))
+    );
+    assert!(be.working_status(false).staged.is_empty());
+}
+
+#[test]
+fn ctrl_q_requests_window_close() {
+    let (_be, backend, mut w) = commit_client();
+    let outcome = backend.dispatch(w.as_mut(), &ctrl_char('q'));
+    assert!(
+        outcome.close_requested,
+        "Ctrl+Q should ask the window to close"
+    );
+}

@@ -11,7 +11,7 @@ mod shell;
 
 pub use commit_list::{CommitList, CommitRow};
 pub use diff_view::DiffView;
-pub use graph::{compute_graph, Graph, GraphRow};
+pub use graph::{Graph, GraphRow, compute_graph};
 pub use heading::Heading;
 pub use search_bar::SearchBar;
 pub use shared::Shared;

@@ -48,7 +48,12 @@ fn commit_file(
 fn reads_history_refs_and_diffs() {
     let dir = scratch_dir("git2");
     let repo = Repository::init(&dir).unwrap();
-    let sig = Signature::new("Tester", "tester@example.com", &Time::new(1_700_000_000, 60)).unwrap();
+    let sig = Signature::new(
+        "Tester",
+        "tester@example.com",
+        &Time::new(1_700_000_000, 60),
+    )
+    .unwrap();
 
     fs::write(dir.join("a.txt"), "hello\n").unwrap();
     let c1 = commit_file(&repo, "a.txt", &sig, "first commit\n", &[]);

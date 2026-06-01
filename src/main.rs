@@ -20,7 +20,10 @@ fn main() -> ExitCode {
     let backend: Rc<dyn RepoBackend> = match Git2Backend::open(&path) {
         Ok(backend) => Rc::new(backend),
         Err(err) => {
-            eprintln!("journey: cannot open a git repository at {path:?}: {}", err.message());
+            eprintln!(
+                "journey: cannot open a git repository at {path:?}: {}",
+                err.message()
+            );
             return ExitCode::FAILURE;
         }
     };

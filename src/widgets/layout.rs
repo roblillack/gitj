@@ -95,7 +95,12 @@ pub fn commit_unstaged_label(b: Rect) -> Rect {
 
 pub fn commit_unstaged_list(b: Rect) -> Rect {
     let y = content_top(b) + 2 + HEADING_H;
-    Rect::new(left_x(b), y, left_w(), (section_h(b) - HEADING_H - 4).max(0))
+    Rect::new(
+        left_x(b),
+        y,
+        left_w(),
+        (section_h(b) - HEADING_H - 4).max(0),
+    )
 }
 
 pub fn commit_staged_label(b: Rect) -> Rect {

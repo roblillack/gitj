@@ -11,8 +11,8 @@
 use std::time::{Duration, Instant};
 
 use saudade::{
-    Color, Event, EventCtx, Key, MouseButton, NamedKey, Painter, Point, Rect, ScrollBar,
-    SCROLLBAR_THICKNESS, Theme, Widget,
+    Color, Event, EventCtx, Key, MouseButton, NamedKey, Painter, Point, Rect, SCROLLBAR_THICKNESS,
+    ScrollBar, Theme, Widget,
 };
 
 use crate::backend::{RefKind, RefLabel};
@@ -271,7 +271,11 @@ impl Widget for CommitList {
                 };
                 painter.fill_rect(Rect::new(text_x, y, row_w, ROW_HEIGHT), bg);
             }
-            let fg = if active { theme.highlight_text } else { theme.text };
+            let fg = if active {
+                theme.highlight_text
+            } else {
+                theme.text
+            };
 
             // Graph gutter, if present, in its own column at the far left.
             if let Some(graph) = &self.graph
@@ -412,14 +416,33 @@ fn draw_graph_row(painter: &mut Painter, row: &GraphRow, gutter_x: i32, y: i32) 
     // Top half: a lane at the top edge curving in to the row center. Color by
     // the upper lane so a line keeps its color along its length.
     for &(from, to) in &row.top {
-        draw_line(painter, lane_x(from), top, lane_x(to), center, lane_color(from));
+        draw_line(
+            painter,
+            lane_x(from),
+            top,
+            lane_x(to),
+            center,
+            lane_color(from),
+        );
     }
     // Bottom half: from the center down to a lane at the bottom edge. Color by
     // the lower lane (the lane the segment becomes).
     for &(from, to) in &row.bottom {
-        draw_line(painter, lane_x(from), center, lane_x(to), bottom, lane_color(to));
+        draw_line(
+            painter,
+            lane_x(from),
+            center,
+            lane_x(to),
+            bottom,
+            lane_color(to),
+        );
     }
-    draw_dot(painter, lane_x(row.node_col), center, lane_color(row.node_col));
+    draw_dot(
+        painter,
+        lane_x(row.node_col),
+        center,
+        lane_color(row.node_col),
+    );
 }
 
 /// Bresenham line via single logical pixels (crisp at any DPI). Straight

@@ -51,14 +51,27 @@ fn fixture_stage_unstage_commit() {
     // re-committed), and can be pulled back out to the unstaged side.
     let amend = be.working_status(true);
     assert!(
-        amend.staged.iter().any(|f| f.path == "src/widgets/graph.rs"),
+        amend
+            .staged
+            .iter()
+            .any(|f| f.path == "src/widgets/graph.rs"),
         "amend should stage HEAD's files, got {:?}",
         amend.staged
     );
     be.unstage("src/widgets/graph.rs", true).unwrap();
     let amend = be.working_status(true);
-    assert!(!amend.staged.iter().any(|f| f.path == "src/widgets/graph.rs"));
-    assert!(amend.unstaged.iter().any(|f| f.path == "src/widgets/graph.rs"));
+    assert!(
+        !amend
+            .staged
+            .iter()
+            .any(|f| f.path == "src/widgets/graph.rs")
+    );
+    assert!(
+        amend
+            .unstaged
+            .iter()
+            .any(|f| f.path == "src/widgets/graph.rs")
+    );
     // Normal (non-amend) view never shows HEAD's files.
     assert!(
         !be.working_status(false)
@@ -144,7 +157,11 @@ fn git2_stage_commit_amend() {
     // Pull a.txt out of the amend: it leaves the staged side (reset to HEAD^).
     backend.unstage("a.txt", true).unwrap();
     let amend = backend.working_status(true);
-    assert!(amend.staged.is_empty(), "after unstage, got {:?}", amend.staged);
+    assert!(
+        amend.staged.is_empty(),
+        "after unstage, got {:?}",
+        amend.staged
+    );
     assert!(amend.unstaged.iter().any(|f| f.path == "a.txt"));
 
     // Re-stage and amend the message (no new commit is created).

@@ -7,8 +7,8 @@
 //! saudade's `List`, only measures and paints the rows currently on screen.
 
 use saudade::{
-    Color, Event, EventCtx, Key, MouseButton, NamedKey, Painter, Rect, ScrollBar,
-    SCROLLBAR_THICKNESS, Theme, Widget,
+    Color, Event, EventCtx, Key, MouseButton, NamedKey, Painter, Rect, SCROLLBAR_THICKNESS,
+    ScrollBar, Theme, Widget,
 };
 
 use crate::backend::{Diff, DiffLineKind};

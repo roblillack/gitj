@@ -1,9 +1,14 @@
-//! Helpers shared by journey's snapshot tests.
+//! Helpers shared by journey's integration tests.
 //!
 //! Mirrors saudade's harness: every widget tree is rendered against the
 //! bundled DejaVu fonts (so glyph rasterization is bit-identical regardless of
 //! the host's installed fonts) and compared to a checked-in PNG baseline via
 //! `insta::assert_binary_snapshot!`. Review diffs with `cargo insta review`.
+
+// Each integration-test binary is its own crate and pulls in only the helpers
+// it needs (the snapshot tests use the renderers; the shortcut tests only the
+// fonts), so unused-helper warnings here are expected.
+#![allow(dead_code)]
 
 use saudade::mock::MockBackend;
 use saudade::{Event, Font, Widget};
@@ -43,7 +48,13 @@ where
     snapshot_one(name, width, height, build(), &events());
 }
 
-fn snapshot_one(name: &str, width: i32, height: i32, mut widget: Box<dyn Widget>, events: &[Event]) {
+fn snapshot_one(
+    name: &str,
+    width: i32,
+    height: i32,
+    mut widget: Box<dyn Widget>,
+    events: &[Event],
+) {
     let backend = MockBackend::new(width, height)
         .with_scale(SCALE)
         .with_font(sans_font())

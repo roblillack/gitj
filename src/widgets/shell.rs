@@ -120,7 +120,10 @@ impl Shell {
     }
 
     fn focusable_count(&self) -> usize {
-        self.children.iter().filter(|c| c.widget.focusable()).count()
+        self.children
+            .iter()
+            .filter(|c| c.widget.focusable())
+            .count()
     }
 
     fn cycle_focus(&mut self, dir: i32, ctx: &mut EventCtx) -> bool {
@@ -319,11 +322,10 @@ fn tab_action(event: &Event) -> Option<TabKind> {
         } if !modifiers.control && !modifiers.alt && !modifiers.logo => {
             Some(TabKind::Cycle(if modifiers.shift { -1 } else { 1 }))
         }
-        Event::Char { ch: '\t', modifiers }
-            if !modifiers.control && !modifiers.alt && !modifiers.logo =>
-        {
-            Some(TabKind::Swallow)
-        }
+        Event::Char {
+            ch: '\t',
+            modifiers,
+        } if !modifiers.control && !modifiers.alt && !modifiers.logo => Some(TabKind::Swallow),
         _ => None,
     }
 }

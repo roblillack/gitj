@@ -5,8 +5,8 @@
 //! against a deterministic [`fixture::FixtureBackend`] instead of needing a
 //! live repository with machine-dependent SHAs and timestamps.
 
-mod git2_backend;
 pub mod fixture;
+mod git2_backend;
 
 pub use fixture::FixtureBackend;
 pub use git2_backend::Git2Backend;
@@ -249,6 +249,13 @@ pub trait RepoBackend {
     /// The full message of the current `HEAD` commit, used to pre-fill the
     /// editor when amending. `None` if there is no commit yet.
     fn head_message(&self) -> Option<String>;
+
+    /// The configured commit identity as `(name, email)`, used by the commit
+    /// screen's "Sign Off" shortcut to append a `Signed-off-by` trailer.
+    /// `None` when no identity is configured.
+    fn signature(&self) -> Option<(String, String)> {
+        None
+    }
 }
 
 /// Format a Unix timestamp (+ minute offset) as `YYYY-MM-DD HH:MM:SS ±HHMM`
@@ -293,7 +300,10 @@ mod time_tests {
     #[test]
     fn formats_known_timestamps() {
         // 2021-01-01 00:00:00 UTC
-        assert_eq!(format_git_time(1_609_459_200, 0), "2021-01-01 00:00:00 +0000");
+        assert_eq!(
+            format_git_time(1_609_459_200, 0),
+            "2021-01-01 00:00:00 +0000"
+        );
         // The Unix epoch itself.
         assert_eq!(format_git_time(0, 0), "1970-01-01 00:00:00 +0000");
         // With a +02:00 offset the wall clock advances two hours.

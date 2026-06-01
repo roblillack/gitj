@@ -8,7 +8,7 @@ use std::rc::Rc;
 use common::{snapshot, snapshot_with_events};
 use journey::backend::{Diff, DiffLine, DiffLineKind, FixtureBackend, RefKind, RefLabel};
 use journey::ui::GitClient;
-use journey::widgets::{compute_graph, CommitList, CommitRow, DiffView};
+use journey::widgets::{CommitList, CommitRow, DiffView, compute_graph};
 use saudade::{
     Color, Container, Event, Key, Modifiers, MouseButton, NamedKey, Point, Rect, Widget,
 };
@@ -244,12 +244,66 @@ fn commit_mode_amend_unstage() {
         },
         || {
             vec![
-                click(340, 542),  // tick "Amend last commit"
+                click(340, 542), // tick "Amend last commit"
                 release(340, 542),
-                click(50, 340),   // select the HEAD file (3rd staged row)
-                click(150, 545),  // press the "Unstage" button...
+                click(50, 340),  // select the HEAD file (3rd staged row)
+                click(150, 545), // press the "Unstage" button...
                 release(150, 545),
             ]
+        },
+    );
+}
+
+/// Open the Commit menu on the staging screen (Alt+C): its drop-down shows the
+/// `git gui`-style accelerator hints (Ctrl+T, Ctrl+I, Ctrl+S, Ctrl+Enter, …)
+/// right-aligned beside each action.
+#[test]
+fn commit_mode_menu_open() {
+    snapshot_with_events(
+        "commit_mode_menu_open",
+        CW,
+        CH,
+        || {
+            let mut client = sample_client();
+            client.enter_commit_mode();
+            Box::new(client)
+        },
+        || {
+            vec![Event::KeyDown {
+                key: Key::Char('c'),
+                modifiers: Modifiers {
+                    alt: true,
+                    ..Modifiers::default()
+                },
+            }]
+        },
+    );
+}
+
+/// Ctrl+S signs off: the editor gains a `Signed-off-by` trailer for the
+/// configured identity, a blank line below the typed message.
+#[test]
+fn commit_mode_signoff() {
+    snapshot_with_events(
+        "commit_mode_signoff",
+        CW,
+        CH,
+        || {
+            let mut client = sample_client();
+            client.enter_commit_mode();
+            Box::new(client)
+        },
+        || {
+            let mut events = vec![click(420, 360), release(420, 360)];
+            events.extend(type_text("Add keyboard shortcuts"));
+            events.push(Event::KeyDown {
+                key: Key::Char('s'),
+                modifiers: Modifiers {
+                    control: true,
+                    ..Modifiers::default()
+                },
+            });
+            events
         },
     );
 }
@@ -429,15 +483,27 @@ fn commit_list_graph() {
             kind,
         };
         let rows = vec![
-            row("m", &["e", "d"], "Merge feature into main", vec![head("main", RefKind::Head)]),
+            row(
+                "m",
+                &["e", "d"],
+                "Merge feature into main",
+                vec![head("main", RefKind::Head)],
+            ),
             row("e", &["c"], "Main-line work", vec![]),
-            row("d", &["c"], "Feature tweak", vec![head("feature", RefKind::LocalBranch)]),
+            row(
+                "d",
+                &["c"],
+                "Feature tweak",
+                vec![head("feature", RefKind::LocalBranch)],
+            ),
             row("c", &["b"], "Shared base", vec![]),
             row("b", &["a"], "Earlier change", vec![]),
             row("a", &[], "Initial commit", vec![]),
         ];
-        let dag: Vec<(String, Vec<String>)> =
-            rows.iter().map(|r| (r.id.clone(), r.parents.clone())).collect();
+        let dag: Vec<(String, Vec<String>)> = rows
+            .iter()
+            .map(|r| (r.id.clone(), r.parents.clone()))
+            .collect();
 
         let mut list = CommitList::new(Rect::new(8, 8, 544, 114)).with_rows(rows);
         list.set_graph(Some(compute_graph(&dag)));
@@ -453,7 +519,10 @@ fn commit_list_graph() {
 
 fn sample_diff() -> Diff {
     let lines = [
-        (DiffLineKind::FileHeader, "diff --git a/src/main.rs b/src/main.rs"),
+        (
+            DiffLineKind::FileHeader,
+            "diff --git a/src/main.rs b/src/main.rs",
+        ),
         (DiffLineKind::FileHeader, "index 1a2b3c4..5d6e7f8 100644"),
         (DiffLineKind::FileHeader, "--- a/src/main.rs"),
         (DiffLineKind::FileHeader, "+++ b/src/main.rs"),

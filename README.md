@@ -43,6 +43,11 @@ automatically: committing drops you back to the log.
   adding a new commit.
 * **Rescan** re-reads the working tree. Committing returns to the log view,
   which now shows the new commit.
+* **Keyboard shortcuts** mirror `git gui` (and are shown next to each Commit
+  menu item): **Ctrl+Enter** commits, **Ctrl+T** stages the selected file,
+  **Ctrl+I** stages everything, **Ctrl+S** appends a `Signed-off-by` trailer,
+  **Ctrl+R** rescans, and the message editor takes the usual **Ctrl+C / X / V /
+  A**. **Ctrl+Q** quits from either screen.
 
 ### Throughout
 

@@ -82,8 +82,9 @@ pub fn compute_graph(commits: &[(String, Vec<String>)]) -> Graph {
         // a new one.
         let mut parent_cols = Vec::new();
         for (k, parent) in parents.iter().enumerate() {
-            let col = if let Some(existing) =
-                lanes.iter().position(|l| l.as_deref() == Some(parent.as_str()))
+            let col = if let Some(existing) = lanes
+                .iter()
+                .position(|l| l.as_deref() == Some(parent.as_str()))
             {
                 existing
             } else if k == 0 {
@@ -155,7 +156,10 @@ mod tests {
     use super::*;
 
     fn c(id: &str, parents: &[&str]) -> (String, Vec<String>) {
-        (id.to_string(), parents.iter().map(|p| p.to_string()).collect())
+        (
+            id.to_string(),
+            parents.iter().map(|p| p.to_string()).collect(),
+        )
     }
 
     #[test]

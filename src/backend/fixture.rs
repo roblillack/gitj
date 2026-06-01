@@ -39,6 +39,8 @@ pub struct FixtureBackend {
     amend_removed: RefCell<HashSet<String>>,
     /// The last commit performed, recorded for test assertions: (message, amend).
     last_commit: RefCell<Option<(String, bool)>>,
+    /// The simulated commit identity returned by [`RepoBackend::signature`].
+    signature: Option<(String, String)>,
 }
 
 impl FixtureBackend {
@@ -50,7 +52,14 @@ impl FixtureBackend {
             working: RefCell::new(Vec::new()),
             amend_removed: RefCell::new(HashSet::new()),
             last_commit: RefCell::new(None),
+            signature: Some(("Robert Lillack".to_string(), "rob@example.com".to_string())),
         }
+    }
+
+    /// Override the simulated commit identity (or clear it with `None`).
+    pub fn with_signature(mut self, signature: Option<(String, String)>) -> Self {
+        self.signature = signature;
+        self
     }
 
     /// The files belonging to the `HEAD` commit (index 0, newest first) — the
@@ -109,21 +118,22 @@ impl FixtureBackend {
                 &["b2c3d4e5f60718293a4b5c6d7e8f90123456789a"],
                 &[("main", RefKind::Head)],
             ),
-            vec![
-                file_entry(
-                    "src/widgets/graph.rs",
-                    None,
-                    ChangeStatus::Added,
-                    &[
-                        (DiffLineKind::FileHeader, "diff --git a/src/widgets/graph.rs b/src/widgets/graph.rs"),
-                        (DiffLineKind::FileHeader, "new file mode 100644"),
-                        (DiffLineKind::HunkHeader, "@@ -0,0 +1,3 @@"),
-                        (DiffLineKind::Addition, "+pub struct Graph {"),
-                        (DiffLineKind::Addition, "+    lanes: Vec<Lane>,"),
-                        (DiffLineKind::Addition, "+}"),
-                    ],
-                ),
-            ],
+            vec![file_entry(
+                "src/widgets/graph.rs",
+                None,
+                ChangeStatus::Added,
+                &[
+                    (
+                        DiffLineKind::FileHeader,
+                        "diff --git a/src/widgets/graph.rs b/src/widgets/graph.rs",
+                    ),
+                    (DiffLineKind::FileHeader, "new file mode 100644"),
+                    (DiffLineKind::HunkHeader, "@@ -0,0 +1,3 @@"),
+                    (DiffLineKind::Addition, "+pub struct Graph {"),
+                    (DiffLineKind::Addition, "+    lanes: Vec<Lane>,"),
+                    (DiffLineKind::Addition, "+}"),
+                ],
+            )],
         );
 
         be.add_commit(
@@ -143,10 +153,22 @@ impl FixtureBackend {
                     None,
                     ChangeStatus::Modified,
                     &[
-                        (DiffLineKind::FileHeader, "diff --git a/src/backend.rs b/src/backend.rs"),
-                        (DiffLineKind::HunkHeader, "@@ -10,6 +10,10 @@ impl Backend {"),
-                        (DiffLineKind::Context, "     pub fn log(&self) -> Vec<Commit> {"),
-                        (DiffLineKind::Addition, "+        // collect changed files too"),
+                        (
+                            DiffLineKind::FileHeader,
+                            "diff --git a/src/backend.rs b/src/backend.rs",
+                        ),
+                        (
+                            DiffLineKind::HunkHeader,
+                            "@@ -10,6 +10,10 @@ impl Backend {",
+                        ),
+                        (
+                            DiffLineKind::Context,
+                            "     pub fn log(&self) -> Vec<Commit> {",
+                        ),
+                        (
+                            DiffLineKind::Addition,
+                            "+        // collect changed files too",
+                        ),
                         (DiffLineKind::Addition, "+        self.changed_files();"),
                         (DiffLineKind::Context, "         self.commits.clone()"),
                         (DiffLineKind::Context, "     }"),
@@ -157,10 +179,16 @@ impl FixtureBackend {
                     None,
                     ChangeStatus::Modified,
                     &[
-                        (DiffLineKind::FileHeader, "diff --git a/src/main.rs b/src/main.rs"),
+                        (
+                            DiffLineKind::FileHeader,
+                            "diff --git a/src/main.rs b/src/main.rs",
+                        ),
                         (DiffLineKind::HunkHeader, "@@ -42,7 +42,7 @@"),
                         (DiffLineKind::Deletion, "-    let files = vec![];"),
-                        (DiffLineKind::Addition, "+    let files = backend.changed_files(idx);"),
+                        (
+                            DiffLineKind::Addition,
+                            "+    let files = backend.changed_files(idx);",
+                        ),
                     ],
                 ),
             ],
@@ -182,10 +210,16 @@ impl FixtureBackend {
                 None,
                 ChangeStatus::Modified,
                 &[
-                    (DiffLineKind::FileHeader, "diff --git a/src/main.rs b/src/main.rs"),
+                    (
+                        DiffLineKind::FileHeader,
+                        "diff --git a/src/main.rs b/src/main.rs",
+                    ),
                     (DiffLineKind::HunkHeader, "@@ -20,1 +20,1 @@ fn title()"),
                     (DiffLineKind::Deletion, "-        String::from(\"Journey\")"),
-                    (DiffLineKind::Addition, "+        format!(\"Journey: {}\", path)"),
+                    (
+                        DiffLineKind::Addition,
+                        "+        format!(\"Journey: {}\", path)",
+                    ),
                 ],
             )],
         );
@@ -206,7 +240,10 @@ impl FixtureBackend {
                 None,
                 ChangeStatus::Modified,
                 &[
-                    (DiffLineKind::FileHeader, "diff --git a/src/style.rs b/src/style.rs"),
+                    (
+                        DiffLineKind::FileHeader,
+                        "diff --git a/src/style.rs b/src/style.rs",
+                    ),
                     (DiffLineKind::HunkHeader, "@@ -80,4 +80,4 @@"),
                     (DiffLineKind::Deletion, "-pub fn boldFont() -> Font {"),
                     (DiffLineKind::Addition, "+pub fn bold_font() -> Font {"),
@@ -231,7 +268,10 @@ impl FixtureBackend {
                     None,
                     ChangeStatus::Added,
                     &[
-                        (DiffLineKind::FileHeader, "diff --git a/Cargo.toml b/Cargo.toml"),
+                        (
+                            DiffLineKind::FileHeader,
+                            "diff --git a/Cargo.toml b/Cargo.toml",
+                        ),
                         (DiffLineKind::FileHeader, "new file mode 100644"),
                         (DiffLineKind::HunkHeader, "@@ -0,0 +1,2 @@"),
                         (DiffLineKind::Addition, "+[package]"),
@@ -243,7 +283,10 @@ impl FixtureBackend {
                     None,
                     ChangeStatus::Added,
                     &[
-                        (DiffLineKind::FileHeader, "diff --git a/src/main.rs b/src/main.rs"),
+                        (
+                            DiffLineKind::FileHeader,
+                            "diff --git a/src/main.rs b/src/main.rs",
+                        ),
                         (DiffLineKind::FileHeader, "new file mode 100644"),
                         (DiffLineKind::HunkHeader, "@@ -0,0 +1,1 @@"),
                         (DiffLineKind::Addition, "+fn main() {}"),
@@ -259,10 +302,19 @@ impl FixtureBackend {
             ChangeStatus::Modified,
             false,
             &[
-                (DiffLineKind::FileHeader, "diff --git a/src/ui.rs b/src/ui.rs"),
-                (DiffLineKind::HunkHeader, "@@ -40,6 +40,9 @@ impl GitClient {"),
+                (
+                    DiffLineKind::FileHeader,
+                    "diff --git a/src/ui.rs b/src/ui.rs",
+                ),
+                (
+                    DiffLineKind::HunkHeader,
+                    "@@ -40,6 +40,9 @@ impl GitClient {",
+                ),
                 (DiffLineKind::Context, "     fn sync(&mut self) {"),
-                (DiffLineKind::Addition, "+        // refresh the working-tree panes"),
+                (
+                    DiffLineKind::Addition,
+                    "+        // refresh the working-tree panes",
+                ),
                 (DiffLineKind::Addition, "+        self.rescan();"),
                 (DiffLineKind::Context, "         self.repaint();"),
                 (DiffLineKind::Context, "     }"),
@@ -285,7 +337,10 @@ impl FixtureBackend {
             ChangeStatus::Added,
             true,
             &[
-                (DiffLineKind::FileHeader, "diff --git a/src/widgets/commit_panel.rs b/src/widgets/commit_panel.rs"),
+                (
+                    DiffLineKind::FileHeader,
+                    "diff --git a/src/widgets/commit_panel.rs b/src/widgets/commit_panel.rs",
+                ),
                 (DiffLineKind::FileHeader, "new file mode 100644"),
                 (DiffLineKind::HunkHeader, "@@ -0,0 +1,3 @@"),
                 (DiffLineKind::Addition, "+pub struct CommitPanel {"),
@@ -298,11 +353,23 @@ impl FixtureBackend {
             ChangeStatus::Modified,
             true,
             &[
-                (DiffLineKind::FileHeader, "diff --git a/Cargo.toml b/Cargo.toml"),
-                (DiffLineKind::HunkHeader, "@@ -8,3 +8,4 @@ edition = \"2024\""),
+                (
+                    DiffLineKind::FileHeader,
+                    "diff --git a/Cargo.toml b/Cargo.toml",
+                ),
+                (
+                    DiffLineKind::HunkHeader,
+                    "@@ -8,3 +8,4 @@ edition = \"2024\"",
+                ),
                 (DiffLineKind::Context, " [dependencies]"),
-                (DiffLineKind::Addition, "+git2 = { version = \"0.18\", default-features = false }"),
-                (DiffLineKind::Context, " saudade = { path = \"../saudade\" }"),
+                (
+                    DiffLineKind::Addition,
+                    "+git2 = { version = \"0.18\", default-features = false }",
+                ),
+                (
+                    DiffLineKind::Context,
+                    " saudade = { path = \"../saudade\" }",
+                ),
             ],
         );
 
@@ -436,6 +503,10 @@ impl RepoBackend for FixtureBackend {
 
     fn head_message(&self) -> Option<String> {
         self.commits.first().map(|c| c.message.clone())
+    }
+
+    fn signature(&self) -> Option<(String, String)> {
+        self.signature.clone()
     }
 }
 

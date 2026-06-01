@@ -51,10 +51,7 @@ impl Git2Backend {
     fn build_diff(&self, index: usize, path: Option<&str>) -> Option<git2::Diff<'_>> {
         let commit = self.commit_at(index)?;
         let new_tree = commit.tree().ok()?;
-        let parent_tree = commit
-            .parent(0)
-            .ok()
-            .and_then(|p| p.tree().ok());
+        let parent_tree = commit.parent(0).ok().and_then(|p| p.tree().ok());
 
         let mut opts = DiffOptions::new();
         opts.context_lines(3);
@@ -235,6 +232,11 @@ impl RepoBackend for Git2Backend {
         let commit = self.repo.head().ok()?.peel_to_commit().ok()?;
         Some(commit.message().unwrap_or("").to_string())
     }
+
+    fn signature(&self) -> Option<(String, String)> {
+        let sig = self.repo.signature().ok()?;
+        Some((sig.name()?.to_string(), sig.email()?.to_string()))
+    }
 }
 
 /// Map a libgit2 diff delta to our [`FileChange`], collapsing the old path for
@@ -273,9 +275,7 @@ fn collect_refs(repo: &Repository) -> Result<HashMap<Oid, Vec<RefLabel>>, git2::
         .map(str::to_string);
     let detached = repo.head_detached().unwrap_or(false);
 
-    if detached
-        && let Some(oid) = head.as_ref().and_then(|h| h.target())
-    {
+    if detached && let Some(oid) = head.as_ref().and_then(|h| h.target()) {
         map.entry(oid).or_default().push(RefLabel {
             name: "HEAD".into(),
             kind: RefKind::DetachedHead,
@@ -402,8 +402,12 @@ fn render_diff(diff: git2::Diff) -> Diff {
         let content = String::from_utf8_lossy(line.content());
         let content = content.trim_end_matches('\n');
         match line.origin_value() {
-            DiffLineType::FileHeader => push_multiline(&mut lines, DiffLineKind::FileHeader, content),
-            DiffLineType::HunkHeader => push_multiline(&mut lines, DiffLineKind::HunkHeader, content),
+            DiffLineType::FileHeader => {
+                push_multiline(&mut lines, DiffLineKind::FileHeader, content)
+            }
+            DiffLineType::HunkHeader => {
+                push_multiline(&mut lines, DiffLineKind::HunkHeader, content)
+            }
             DiffLineType::Context => {
                 lines.push(DiffLine::new(DiffLineKind::Context, format!(" {content}")))
             }
@@ -413,9 +417,7 @@ fn render_diff(diff: git2::Diff) -> Diff {
             DiffLineType::Deletion => {
                 lines.push(DiffLine::new(DiffLineKind::Deletion, format!("-{content}")))
             }
-            DiffLineType::ContextEOFNL
-            | DiffLineType::AddEOFNL
-            | DiffLineType::DeleteEOFNL => {
+            DiffLineType::ContextEOFNL | DiffLineType::AddEOFNL | DiffLineType::DeleteEOFNL => {
                 lines.push(DiffLine::new(DiffLineKind::Meta, content.to_string()))
             }
             _ => push_multiline(&mut lines, DiffLineKind::Meta, content),
