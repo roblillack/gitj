@@ -128,6 +128,55 @@ fn ctrl_enter_commits_with_the_typed_message() {
 }
 
 #[test]
+fn ctrl_j_arms_revert_without_discarding() {
+    let (be, backend, mut w) = commit_client();
+    // src/ui.rs is the auto-selected unstaged file on entry.
+    assert!(
+        be.working_status(false)
+            .unstaged
+            .iter()
+            .any(|f| f.path == "src/ui.rs")
+    );
+
+    // Ctrl+J only opens the confirm dialog — nothing is discarded until the
+    // user explicitly confirms.
+    backend.dispatch(w.as_mut(), &ctrl_char('j'));
+
+    assert!(
+        be.working_status(false)
+            .unstaged
+            .iter()
+            .any(|f| f.path == "src/ui.rs"),
+        "Ctrl+J must not revert before the user confirms"
+    );
+}
+
+#[test]
+fn ctrl_j_then_confirm_reverts_the_selected_file() {
+    let (be, backend, mut w) = commit_client();
+    assert!(
+        be.working_status(false)
+            .unstaged
+            .iter()
+            .any(|f| f.path == "src/ui.rs")
+    );
+
+    backend.dispatch(w.as_mut(), &ctrl_char('j'));
+    // Paint once so the confirm dialog lays out its buttons for hit-testing
+    // (button rects are computed during paint, as in the live runtime).
+    let _ = backend.render(w.as_mut());
+    // Click the affirmative "Revert Changes" button (the left of the two).
+    backend.dispatch(w.as_mut(), &click(369, 320));
+    backend.dispatch(w.as_mut(), &release(369, 320));
+
+    let ws = be.working_status(false);
+    assert!(
+        !ws.unstaged.iter().any(|f| f.path == "src/ui.rs"),
+        "confirming the dialog should revert src/ui.rs, got {ws:?}"
+    );
+}
+
+#[test]
 fn ctrl_q_requests_window_close() {
     let (_be, backend, mut w) = commit_client();
     let outcome = backend.dispatch(w.as_mut(), &ctrl_char('q'));

@@ -489,6 +489,16 @@ impl RepoBackend for FixtureBackend {
         Ok(())
     }
 
+    fn revert(&self, path: &str) -> Result<(), String> {
+        // Drop the unstaged (working-vs-index) entry for this path, the
+        // simulation's stand-in for restoring it from the index. Staged entries
+        // and untracked files are left alone, matching the live backend.
+        self.working.borrow_mut().retain(|e| {
+            !(e.change.path == path && !e.staged && e.change.status != ChangeStatus::Untracked)
+        });
+        Ok(())
+    }
+
     fn commit(&self, message: &str, amend: bool) -> Result<(), String> {
         if message.trim().is_empty() {
             return Err("Please enter a commit message.".into());

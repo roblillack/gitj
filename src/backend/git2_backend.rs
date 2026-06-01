@@ -197,6 +197,19 @@ impl RepoBackend for Git2Backend {
         }
     }
 
+    fn revert(&self, path: &str) -> Result<(), String> {
+        // Rewrite the working-tree file from the index, overwriting any
+        // unstaged edits. `update_index(false)` leaves the index untouched, so
+        // a partially-staged file keeps its staged changes — only the
+        // working-vs-index delta is discarded. An untracked path has no index
+        // entry, so the checkout simply skips it.
+        let mut opts = git2::build::CheckoutBuilder::new();
+        opts.force().update_index(false).path(path);
+        self.repo
+            .checkout_index(None, Some(&mut opts))
+            .map_err(err_msg)
+    }
+
     fn commit(&self, message: &str, amend: bool) -> Result<(), String> {
         if message.trim().is_empty() {
             return Err("Please enter a commit message.".into());

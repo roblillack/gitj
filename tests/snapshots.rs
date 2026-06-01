@@ -187,6 +187,32 @@ fn commit_mode_staged_file() {
     );
 }
 
+/// Ctrl+J on the (auto-selected) first unstaged file pops the destructive-
+/// action confirm dialog over the commit screen — the safety gate before a
+/// "Revert Changes" actually discards the working-tree edits.
+#[test]
+fn commit_mode_revert_confirm() {
+    snapshot_with_events(
+        "commit_mode_revert_confirm",
+        CW,
+        CH,
+        || {
+            let mut client = sample_client();
+            client.enter_commit_mode();
+            Box::new(client)
+        },
+        || {
+            vec![Event::KeyDown {
+                key: Key::Char('j'),
+                modifiers: Modifiers {
+                    control: true,
+                    ..Modifiers::default()
+                },
+            }]
+        },
+    );
+}
+
 /// Click into the message editor and type a commit message.
 #[test]
 fn commit_mode_message() {

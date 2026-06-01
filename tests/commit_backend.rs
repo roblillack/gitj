@@ -85,6 +85,117 @@ fn fixture_stage_unstage_commit() {
 }
 
 #[test]
+fn fixture_revert_discards_unstaged_only() {
+    let be = FixtureBackend::sample();
+    // sample() seeds src/ui.rs (unstaged, modified), notes.md (unstaged,
+    // untracked) and Cargo.toml (staged), among others.
+    assert!(
+        be.working_status(false)
+            .unstaged
+            .iter()
+            .any(|f| f.path == "src/ui.rs")
+    );
+
+    // Reverting a tracked unstaged file drops it from the working set.
+    be.revert("src/ui.rs").unwrap();
+    let ws = be.working_status(false);
+    assert!(
+        !ws.unstaged.iter().any(|f| f.path == "src/ui.rs"),
+        "revert should discard the unstaged change, got {ws:?}"
+    );
+
+    // Untracked files have no index version to restore, so revert leaves them.
+    be.revert("notes.md").unwrap();
+    assert!(
+        be.working_status(false)
+            .unstaged
+            .iter()
+            .any(|f| f.path == "notes.md"),
+        "revert must not delete untracked files"
+    );
+
+    // Staged changes are never touched by a revert.
+    be.revert("Cargo.toml").unwrap();
+    assert!(
+        be.working_status(false)
+            .staged
+            .iter()
+            .any(|f| f.path == "Cargo.toml")
+    );
+}
+
+#[test]
+fn git2_revert_discards_working_changes() {
+    let dir = scratch_dir("revert");
+    let repo = Repository::init(&dir).unwrap();
+    {
+        let mut cfg = repo.config().unwrap();
+        cfg.set_str("user.name", "Tester").unwrap();
+        cfg.set_str("user.email", "tester@example.com").unwrap();
+    }
+    fs::write(dir.join("a.txt"), "one\n").unwrap();
+    let backend = Git2Backend::open(dir.to_str().unwrap()).unwrap();
+    backend.stage("a.txt").unwrap();
+    backend.commit("seed", false).unwrap();
+
+    // Stage a first edit, then make a *further* unstaged edit on top of it, and
+    // drop an untracked file alongside.
+    fs::write(dir.join("a.txt"), "one\ntwo\n").unwrap();
+    backend.stage("a.txt").unwrap();
+    fs::write(dir.join("a.txt"), "one\ntwo\nthree\n").unwrap();
+    fs::write(dir.join("b.txt"), "scratch\n").unwrap();
+
+    let ws = backend.working_status(false);
+    assert!(
+        ws.unstaged.iter().any(|f| f.path == "a.txt"),
+        "the working edit is unstaged"
+    );
+    assert!(
+        ws.staged.iter().any(|f| f.path == "a.txt"),
+        "the first edit is staged"
+    );
+    assert!(
+        ws.unstaged
+            .iter()
+            .any(|f| f.path == "b.txt" && f.status == ChangeStatus::Untracked)
+    );
+
+    backend.revert("a.txt").unwrap();
+
+    // The working file rewinds to the *index* (the staged "two" version), not
+    // all the way to HEAD: only the unstaged "three" line is discarded.
+    assert_eq!(
+        fs::read_to_string(dir.join("a.txt")).unwrap(),
+        "one\ntwo\n"
+    );
+    let ws = backend.working_status(false);
+    assert!(
+        !ws.unstaged.iter().any(|f| f.path == "a.txt"),
+        "no unstaged change should remain, got {ws:?}"
+    );
+    assert!(
+        ws.staged.iter().any(|f| f.path == "a.txt"),
+        "the staged change must be preserved"
+    );
+
+    // The untracked file is left untouched — revert has nothing to restore.
+    backend.revert("b.txt").unwrap();
+    assert!(
+        dir.join("b.txt").exists(),
+        "revert must not delete untracked files"
+    );
+    assert!(
+        backend
+            .working_status(false)
+            .unstaged
+            .iter()
+            .any(|f| f.path == "b.txt")
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn git2_stage_commit_amend() {
     let dir = scratch_dir("commit");
     let repo = Repository::init(&dir).unwrap();

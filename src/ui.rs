@@ -20,7 +20,8 @@ use saudade::{
 };
 
 use crate::backend::{
-    CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, RefKind, RepoBackend, WorkingStatus,
+    ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, RefKind, RepoBackend,
+    WorkingStatus,
 };
 use crate::widgets::{
     CommitList, CommitRow, DiffView, Heading, SearchBar, Shared, Shell, compute_graph, layout,
@@ -75,6 +76,11 @@ enum AppCommand {
     StageSelected,
     StageAll,
     UnstageSelected,
+    /// Ask to revert the selected unstaged file (pops the confirm dialog).
+    RevertSelected,
+    /// The confirm dialog's affirmative button fired — actually revert
+    /// `pending_revert`.
+    PerformRevert,
     SignOff,
     Commit,
 }
@@ -124,6 +130,9 @@ pub struct GitClient {
     prev_unstaged_sel: Option<usize>,
     prev_staged_sel: Option<usize>,
     last_amend: bool,
+    /// The path awaiting a revert, set when the confirm dialog is shown and
+    /// consumed when its affirmative button drives `AppCommand::PerformRevert`.
+    pending_revert: Option<String>,
 }
 
 impl GitClient {
@@ -239,6 +248,7 @@ impl GitClient {
             prev_unstaged_sel: None,
             prev_staged_sel: None,
             last_amend: false,
+            pending_revert: None,
         };
         client.sync_browse(true);
         client
@@ -306,6 +316,8 @@ impl GitClient {
                 AppCommand::StageSelected => self.stage_selected(),
                 AppCommand::StageAll => self.stage_all(),
                 AppCommand::UnstageSelected => self.unstage_selected(),
+                AppCommand::RevertSelected => self.revert_selected(),
+                AppCommand::PerformRevert => self.perform_revert(),
                 AppCommand::SignOff => self.sign_off(),
                 AppCommand::Commit => self.do_commit(),
             };
@@ -738,6 +750,51 @@ impl GitClient {
         self.rescan();
     }
 
+    /// `git gui`'s "Revert Changes" (Ctrl+J): discard the working-tree changes
+    /// to the selected *unstaged* file. Because the change can't be undone, this
+    /// only arms the operation — it stashes the path and pops a confirm dialog
+    /// whose affirmative button drives [`AppCommand::PerformRevert`]. Untracked
+    /// files have no committed/staged version to restore, so they're skipped.
+    fn revert_selected(&mut self) -> bool {
+        let Some(i) = self.unstaged_list.borrow().selected_index() else {
+            return false;
+        };
+        let Some(file) = self.working.unstaged.get(i) else {
+            return false;
+        };
+        if file.status == ChangeStatus::Untracked {
+            return false;
+        }
+        let display = file.display();
+        self.pending_revert = Some(file.path.clone());
+
+        let commands = self.commands.clone();
+        self.dialog.borrow_mut().show_confirm(
+            "Revert Changes",
+            format!(
+                "Revert unstaged changes in\n{display}?\n\nThese changes will be permanently lost."
+            ),
+            "Revert Changes",
+            move |cx| {
+                commands.borrow_mut().push(AppCommand::PerformRevert);
+                cx.request_paint();
+            },
+        );
+        true
+    }
+
+    /// Carry out the revert the user confirmed in [`Self::revert_selected`].
+    fn perform_revert(&mut self) -> bool {
+        let Some(path) = self.pending_revert.take() else {
+            return false;
+        };
+        if let Err(e) = self.backend.revert(&path) {
+            self.dialog.borrow_mut().show_error("Revert failed", &e);
+        }
+        self.rescan();
+        true
+    }
+
     fn do_commit(&mut self) -> bool {
         let amend = self.amend_check.borrow().is_checked();
         let message = self.message_editor.borrow().text();
@@ -811,6 +868,7 @@ impl GitClient {
                 Some('r') => AppCommand::Rescan,
                 Some('t') => AppCommand::StageSelected,
                 Some('i') => AppCommand::StageAll,
+                Some('j') => AppCommand::RevertSelected,
                 Some('s') => AppCommand::SignOff,
                 _ => return false,
             }
@@ -936,6 +994,8 @@ fn build_commit_menu(
                     .with_accel("Ctrl+T"),
                 cmd_item("Stage &All", &commands, AppCommand::StageAll).with_accel("Ctrl+I"),
                 cmd_item("&Unstage Selected", &commands, AppCommand::UnstageSelected),
+                cmd_item("Re&vert Changes", &commands, AppCommand::RevertSelected)
+                    .with_accel("Ctrl+J"),
                 MenuItem::separator(),
                 cmd_item("Sign &Off", &commands, AppCommand::SignOff).with_accel("Ctrl+S"),
                 cmd_item("&Commit", &commands, AppCommand::Commit).with_accel("Ctrl+Enter"),

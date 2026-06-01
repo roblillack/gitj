@@ -242,6 +242,13 @@ pub trait RepoBackend {
     /// parent, removing the path's change from the commit being amended.
     fn unstage(&self, path: &str, amend: bool) -> Result<(), String>;
 
+    /// Revert (discard) the unstaged working-tree changes to `path`, restoring
+    /// the working copy from the index — `git checkout -- <path>`, the
+    /// destructive half of `git gui`'s "Revert Changes". Only the
+    /// working-vs-index delta is dropped; any *staged* changes to the same path
+    /// are preserved. Untracked files have no index entry and are left as-is.
+    fn revert(&self, path: &str) -> Result<(), String>;
+
     /// Commit the staged changes with `message`. When `amend` is set, replace
     /// the current `HEAD` commit instead of adding a new one.
     fn commit(&self, message: &str, amend: bool) -> Result<(), String>;
