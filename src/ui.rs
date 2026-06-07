@@ -1052,8 +1052,8 @@ fn about_item(dialog: &Rc<RefCell<Dialog>>) -> MenuItem {
     let dialog = dialog.clone();
     MenuItem::action("&About", move |cx| {
         dialog.borrow_mut().show_info(
-            "About Journey",
-            "Journey\n\nA gitk-style repository browser\nbuilt on the saudade toolkit.",
+            "About Git Journey",
+            "Git Journey\n\nA gitk-style repository browser\nbuilt on the Saudade toolkit.",
         );
         cx.request_paint();
     })

@@ -1,4 +1,4 @@
-//! git-journey — a gitk-style repository browser, installed as `gitj`.
+//! gitj — a gitk-style git repository browser and commit helper.
 //!
 //! Usage: `gitj [PATH]`. With no argument it opens the repository
 //! containing the current working directory; otherwise it discovers the
@@ -28,7 +28,7 @@ fn main() -> ExitCode {
         }
     };
 
-    let title = format!("Journey — {}", backend.path());
+    let title = format!("Git Journey — {}", backend.path());
     // File ▸ Reload re-discovers the repository at the same path.
     let reload_path = path.clone();
     let root = GitClient::new(backend).with_reopen(Box::new(move || {

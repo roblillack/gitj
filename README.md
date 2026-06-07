@@ -1,8 +1,8 @@
 # Git Journey
 
-[![CI](https://github.com/roblillack/git-journey/actions/workflows/ci.yml/badge.svg)](https://github.com/roblillack/git-journey/actions/workflows/ci.yml)
-[![crates.io](https://img.shields.io/crates/v/git-journey.svg)](https://crates.io/crates/git-journey)
-[![license](https://img.shields.io/crates/l/git-journey.svg)](LICENSE)
+[![CI](https://github.com/roblillack/gitj/actions/workflows/ci.yml/badge.svg)](https://github.com/roblillack/gitj/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/gitj.svg)](https://crates.io/crates/gitj)
+[![license](https://img.shields.io/crates/l/gitj.svg)](LICENSE)
 
 A gitk-style repository browser and commit helper built on the
 [Saudade](https://github.com/roblillack/saudade) toolkit.
@@ -12,7 +12,7 @@ gitj            # browse the repository containing the current directory
 gitj /path/repo # browse the repository at (or above) a given path
 ```
 
-Journey has two screens — the gitk-style **browse** (history) screen and the
+Git Journey has two screens — the gitk-style **browse** (history) screen and the
 `git gui`-style **commit** (staging) screen. Switch between them from the
 **View** menu, by double-clicking a working-tree entry in the log, or
 automatically: committing drops you back to the log.
@@ -41,7 +41,7 @@ crisp hi-DPI output. Regenerate them with `cargo run --example screenshots`.
 ### Installation
 
 ```sh
-cargo install git-journey
+cargo install gitj
 ```
 
 ### Browse

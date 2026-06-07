@@ -623,15 +623,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "git-journey"
-version = "0.1.0"
-dependencies = [
- "git2",
- "insta",
- "saudade",
-]
-
-[[package]]
 name = "git2"
 version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -642,6 +633,15 @@ dependencies = [
  "libgit2-sys",
  "log",
  "url",
+]
+
+[[package]]
+name = "gitj"
+version = "0.1.0"
+dependencies = [
+ "git2",
+ "insta",
+ "saudade",
 ]
 
 [[package]]
