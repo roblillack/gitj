@@ -83,15 +83,27 @@ fn clamp_files_w(b: Rect) -> i32 {
 }
 
 // ---- commit (git-gui) layout ----------------------------------------------
+//
+// Both columns share one vertical grid: a top section (heading over a pane) and
+// a bottom section of the same shape, above a button band. So the left lists
+// line up row-for-row with the right diff and editor — "Unstaged Changes" with
+// "Diff", "Staged Changes" with "Commit Message" — and the action buttons share
+// one baseline.
 
 const LEFT_W: i32 = 320;
+/// Margin between the panes and the window edges.
 const PAD: i32 = 6;
+/// Space between the two columns, split evenly across the `LEFT_W` divider.
+/// Narrower than the outer `PAD` so the lists and the diff sit close together.
+const GUTTER: i32 = 6;
 const HEADING_H: i32 = 18;
-const LEFT_BTN_H: i32 = 28;
-const RIGHT_BTN_H: i32 = 34;
-const DIFF_FRAC: f32 = 0.5;
+/// Height of the bottom band reserved for the action buttons on both columns.
+const BTN_BAND_H: i32 = 34;
 const BTN_W: i32 = 96;
 const BTN_GAP: i32 = 4;
+const LEFT_BTN_H: i32 = 24;
+const AMEND_H: i32 = 24;
+const COMMIT_BTN_H: i32 = 26;
 
 pub fn commit_menu(b: Rect) -> Rect {
     Rect::new(b.x, b.y, b.w, MENU_H)
@@ -103,108 +115,145 @@ fn content_top(b: Rect) -> i32 {
 fn content_height(b: Rect) -> i32 {
     (b.h - MENU_H).max(0)
 }
+
+// Shared vertical grid -------------------------------------------------------
+
+/// Combined height of the two stacked sections, above the button band.
+fn sections_h(b: Rect) -> i32 {
+    (content_height(b) - BTN_BAND_H).max(0)
+}
+/// Height of a single section (heading + pane).
+fn section_h(b: Rect) -> i32 {
+    sections_h(b) / 2
+}
+fn top_label_y(b: Rect) -> i32 {
+    content_top(b) + 2
+}
+fn top_pane_y(b: Rect) -> i32 {
+    top_label_y(b) + HEADING_H
+}
+fn top_pane_h(b: Rect) -> i32 {
+    (section_h(b) - HEADING_H - 4).max(0)
+}
+fn bottom_label_y(b: Rect) -> i32 {
+    content_top(b) + section_h(b) + 2
+}
+fn bottom_pane_y(b: Rect) -> i32 {
+    bottom_label_y(b) + HEADING_H
+}
+fn bottom_pane_h(b: Rect) -> i32 {
+    (sections_h(b) - section_h(b) - HEADING_H - 4).max(0)
+}
+/// Top of a button of height `bh`, vertically centered in the bottom band so
+/// the left and right rows line up regardless of each button's height.
+fn btn_y(b: Rect, bh: i32) -> i32 {
+    content_top(b) + sections_h(b) + ((BTN_BAND_H - bh) / 2).max(0)
+}
+
+// Left column (unstaged / staged file lists) ---------------------------------
+
 fn left_x(b: Rect) -> i32 {
     b.x + PAD
 }
 fn left_w() -> i32 {
-    (LEFT_W - 2 * PAD).max(0)
-}
-fn left_area_h(b: Rect) -> i32 {
-    (content_height(b) - LEFT_BTN_H).max(0)
-}
-fn section_h(b: Rect) -> i32 {
-    left_area_h(b) / 2
+    (LEFT_W - PAD - GUTTER / 2).max(0)
 }
 
 pub fn commit_unstaged_label(b: Rect) -> Rect {
-    Rect::new(left_x(b), content_top(b) + 2, left_w(), HEADING_H)
+    Rect::new(left_x(b), top_label_y(b), left_w(), HEADING_H)
 }
 
 pub fn commit_unstaged_list(b: Rect) -> Rect {
-    let y = content_top(b) + 2 + HEADING_H;
-    Rect::new(
-        left_x(b),
-        y,
-        left_w(),
-        (section_h(b) - HEADING_H - 4).max(0),
-    )
+    Rect::new(left_x(b), top_pane_y(b), left_w(), top_pane_h(b))
 }
 
 pub fn commit_staged_label(b: Rect) -> Rect {
-    let y = content_top(b) + section_h(b) + 2;
-    Rect::new(left_x(b), y, left_w(), HEADING_H)
+    Rect::new(left_x(b), bottom_label_y(b), left_w(), HEADING_H)
 }
 
 pub fn commit_staged_list(b: Rect) -> Rect {
-    let y = content_top(b) + section_h(b) + 2 + HEADING_H;
-    let h = (left_area_h(b) - section_h(b) - HEADING_H - 4).max(0);
-    Rect::new(left_x(b), y, left_w(), h)
-}
-
-fn left_btn_y(b: Rect) -> i32 {
-    content_top(b) + left_area_h(b) + 2
+    Rect::new(left_x(b), bottom_pane_y(b), left_w(), bottom_pane_h(b))
 }
 
 pub fn commit_stage_btn(b: Rect) -> Rect {
-    Rect::new(left_x(b), left_btn_y(b), BTN_W, 24)
+    Rect::new(left_x(b), btn_y(b, LEFT_BTN_H), BTN_W, LEFT_BTN_H)
 }
 
 pub fn commit_unstage_btn(b: Rect) -> Rect {
-    Rect::new(left_x(b) + BTN_W + BTN_GAP, left_btn_y(b), BTN_W, 24)
+    Rect::new(
+        left_x(b) + BTN_W + BTN_GAP,
+        btn_y(b, LEFT_BTN_H),
+        BTN_W,
+        LEFT_BTN_H,
+    )
 }
 
 pub fn commit_rescan_btn(b: Rect) -> Rect {
-    Rect::new(left_x(b) + 2 * (BTN_W + BTN_GAP), left_btn_y(b), BTN_W, 24)
+    Rect::new(
+        left_x(b) + 2 * (BTN_W + BTN_GAP),
+        btn_y(b, LEFT_BTN_H),
+        BTN_W,
+        LEFT_BTN_H,
+    )
 }
 
-fn right_x(b: Rect) -> i32 {
-    b.x + LEFT_W
-}
-fn right_w(b: Rect) -> i32 {
-    (b.w - LEFT_W).max(0)
-}
+// Right column (diff view / commit message editor) ---------------------------
+
+/// Left edge of the right column: a half-gutter past the divider.
 fn right_inner_x(b: Rect) -> i32 {
-    right_x(b) + PAD
+    b.x + LEFT_W + GUTTER / 2
 }
+/// Width of the right column: from `right_inner_x` to a `PAD` window margin.
 fn right_inner_w(b: Rect) -> i32 {
-    (right_w(b) - 2 * PAD).max(0)
+    (b.x + b.w - PAD - right_inner_x(b)).max(0)
 }
-fn diff_h(b: Rect) -> i32 {
-    (content_height(b) as f32 * DIFF_FRAC) as i32
-}
-fn right_btn_y(b: Rect) -> i32 {
-    content_top(b) + content_height(b) - RIGHT_BTN_H + 4
+
+pub fn commit_diff_label(b: Rect) -> Rect {
+    Rect::new(
+        right_inner_x(b),
+        top_label_y(b),
+        right_inner_w(b),
+        HEADING_H,
+    )
 }
 
 pub fn commit_diff(b: Rect) -> Rect {
     Rect::new(
         right_inner_x(b),
-        content_top(b) + 2,
+        top_pane_y(b),
         right_inner_w(b),
-        (diff_h(b) - 4).max(0),
+        top_pane_h(b),
     )
 }
 
 pub fn commit_msg_label(b: Rect) -> Rect {
     Rect::new(
         right_inner_x(b),
-        content_top(b) + diff_h(b),
+        bottom_label_y(b),
         right_inner_w(b),
         HEADING_H,
     )
 }
 
 pub fn commit_editor(b: Rect) -> Rect {
-    let top = content_top(b) + diff_h(b) + HEADING_H;
-    let h = (right_btn_y(b) - top - 4).max(0);
-    Rect::new(right_inner_x(b), top, right_inner_w(b), h)
+    Rect::new(
+        right_inner_x(b),
+        bottom_pane_y(b),
+        right_inner_w(b),
+        bottom_pane_h(b),
+    )
 }
 
 pub fn commit_amend(b: Rect) -> Rect {
-    Rect::new(right_inner_x(b), right_btn_y(b), 180, 24)
+    Rect::new(right_inner_x(b), btn_y(b, AMEND_H), 180, AMEND_H)
 }
 
 pub fn commit_commit_btn(b: Rect) -> Rect {
     let w = 110;
-    Rect::new(right_x(b) + right_w(b) - PAD - w, right_btn_y(b), w, 26)
+    Rect::new(
+        right_inner_x(b) + right_inner_w(b) - w,
+        btn_y(b, COMMIT_BTN_H),
+        w,
+        COMMIT_BTN_H,
+    )
 }

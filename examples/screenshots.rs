@@ -41,7 +41,14 @@ fn main() {
     // its files listed and the whole-commit diff shown.
     let mut browse = sample_client();
     browse.focus_first();
-    shoot("screenshot-browse.png", WINDOW_W, WINDOW_H, &title, Box::new(browse), &[]);
+    shoot(
+        "screenshot-browse.png",
+        WINDOW_W,
+        WINDOW_H,
+        &title,
+        Box::new(browse),
+        &[],
+    );
 
     // Commit screen: the staging view with a message typed into the editor.
     let mut commit = sample_client();
@@ -51,7 +58,14 @@ fn main() {
     // point lands inside the message editor at this window size.
     let mut events = vec![click(460, 290), release(460, 290)];
     events.extend(type_text("Add git-gui commit mode"));
-    shoot("screenshot-commit.png", WINDOW_W, WINDOW_H, &title, Box::new(commit), &events);
+    shoot(
+        "screenshot-commit.png",
+        WINDOW_W,
+        WINDOW_H,
+        &title,
+        Box::new(commit),
+        &events,
+    );
 }
 
 fn sample_client() -> GitClient {
@@ -82,7 +96,9 @@ fn shoot(name: &str, w: i32, h: i32, title: &str, mut widget: Box<dyn Widget>, e
 
     let chrome = WindowChrome::resizable(title);
     let png = backend.render_framed(widget.as_mut(), &chrome).to_png();
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs").join(name);
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("docs")
+        .join(name);
     std::fs::create_dir_all(path.parent().unwrap()).expect("create docs/");
     std::fs::write(&path, png).expect("write screenshot");
     println!("wrote {}", path.display());

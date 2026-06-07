@@ -217,6 +217,7 @@ impl GitClient {
                 command_button("Rescan", &commands, AppCommand::Rescan),
                 layout::commit_rescan_btn,
             )
+            .add(Heading::new("Diff"), layout::commit_diff_label)
             .add(Shared::new(commit_diff_view.clone()), layout::commit_diff)
             .add(Heading::new("Commit Message"), layout::commit_msg_label)
             .add(Shared::new(message_editor.clone()), layout::commit_editor)
