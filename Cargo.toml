@@ -17,7 +17,7 @@ categories = ["command-line-utilities", "development-tools", "gui"]
 exclude = ["tests/snapshots", "tests/fonts"]
 
 [dependencies]
-saudade = "0.2"
+saudade = "0.3"
 git2 = { version = "0.18", default-features = false }
 
 [dev-dependencies]
