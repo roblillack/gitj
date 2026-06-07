@@ -23,12 +23,11 @@ use journey::ui::GitClient;
 use saudade::mock::MockBackend;
 use saudade::{Event, Font, Modifiers, MouseButton, Point, Widget, WindowChrome};
 
-// The fixture repository is small, so these match the snapshot tests' window
-// sizes: large enough to show every pane without acres of empty chrome.
-const BROWSE_W: i32 = 760;
-const BROWSE_H: i32 = 520;
-const COMMIT_W: i32 = 820;
-const COMMIT_H: i32 = 560;
+// Both screens share one logical window size, so the two framed screenshots
+// line up. The fixture repository is small, so this is enough to show every
+// pane without acres of empty chrome.
+const WINDOW_W: i32 = 600;
+const WINDOW_H: i32 = 400;
 
 // Capture the windows at 2× so the README images stay crisp on hi-DPI displays.
 const SCALE: f32 = 2.0;
@@ -42,16 +41,17 @@ fn main() {
     // its files listed and the whole-commit diff shown.
     let mut browse = sample_client();
     browse.focus_first();
-    shoot("screenshot-browse.png", BROWSE_W, BROWSE_H, &title, Box::new(browse), &[]);
+    shoot("screenshot-browse.png", WINDOW_W, WINDOW_H, &title, Box::new(browse), &[]);
 
     // Commit screen: the staging view with a message typed into the editor.
     let mut commit = sample_client();
     commit.enter_commit_mode();
     // A full click (down + up) focuses the editor and clears the click's
-    // selection anchor before typing — see the commit-mode snapshot tests.
-    let mut events = vec![click(420, 360), release(420, 360)];
+    // selection anchor before typing — see the commit-mode snapshot tests. The
+    // point lands inside the message editor at this window size.
+    let mut events = vec![click(460, 290), release(460, 290)];
     events.extend(type_text("Add git-gui commit mode"));
-    shoot("screenshot-commit.png", COMMIT_W, COMMIT_H, &title, Box::new(commit), &events);
+    shoot("screenshot-commit.png", WINDOW_W, WINDOW_H, &title, Box::new(commit), &events);
 }
 
 fn sample_client() -> GitClient {
