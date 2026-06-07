@@ -20,6 +20,16 @@ pub const HISTORY_FRAC: f32 = 0.46;
 /// (history, files, diff), so they don't run into each other or the window
 /// edge.
 pub const BROWSE_PAD: i32 = 4;
+/// At or below this logical window width the left pane (the browse files list
+/// and the commit file lists) is capped at a third of the width, so the diff
+/// and the other right-hand panes keep the lion's share of a cramped window.
+pub const NARROW_W: i32 = 800;
+
+/// A third of the window width — the cap applied to the left pane on narrow
+/// windows. `None` above [`NARROW_W`], where the fixed widths stand.
+fn narrow_left_cap(b: Rect) -> Option<i32> {
+    (b.w <= NARROW_W).then_some(b.w / 3)
+}
 
 pub fn browse_menu(b: Rect) -> Rect {
     Rect::new(b.x, b.y, b.w, MENU_H)
@@ -77,9 +87,14 @@ fn lower_band(b: Rect) -> (i32, i32) {
 }
 
 /// Width of the files pane, clamped so the diff pane keeps a usable minimum
-/// once the inter-pane gap is accounted for.
+/// once the inter-pane gap is accounted for, and capped to a third of the
+/// window on narrow layouts (see [`narrow_left_cap`]).
 fn clamp_files_w(b: Rect) -> i32 {
-    FILES_W.min((b.w - 3 * BROWSE_PAD - 80).max(0))
+    let w = FILES_W.min((b.w - 3 * BROWSE_PAD - 80).max(0));
+    match narrow_left_cap(b) {
+        Some(cap) => w.min(cap),
+        None => w,
+    }
 }
 
 // ---- commit (git-gui) layout ----------------------------------------------
@@ -99,7 +114,6 @@ const GUTTER: i32 = 6;
 const HEADING_H: i32 = 18;
 /// Height of the bottom band reserved for the action buttons on both columns.
 const BTN_BAND_H: i32 = 34;
-const BTN_W: i32 = 96;
 const BTN_GAP: i32 = 4;
 const LEFT_BTN_H: i32 = 24;
 const AMEND_H: i32 = 24;
@@ -155,53 +169,65 @@ fn btn_y(b: Rect, bh: i32) -> i32 {
 fn left_x(b: Rect) -> i32 {
     b.x + PAD
 }
-fn left_w() -> i32 {
-    (LEFT_W - PAD - GUTTER / 2).max(0)
+/// Width of the left column (the file lists). Fixed at [`LEFT_W`], but capped
+/// to a third of the window on narrow layouts (see [`narrow_left_cap`]) so the
+/// diff and message editor keep the majority of the space.
+fn left_col_w(b: Rect) -> i32 {
+    match narrow_left_cap(b) {
+        Some(cap) => LEFT_W.min(cap),
+        None => LEFT_W,
+    }
+}
+fn left_w(b: Rect) -> i32 {
+    (left_col_w(b) - PAD - GUTTER / 2).max(0)
 }
 
 pub fn commit_unstaged_label(b: Rect) -> Rect {
-    Rect::new(left_x(b), top_label_y(b), left_w(), HEADING_H)
+    Rect::new(left_x(b), top_label_y(b), left_w(b), HEADING_H)
 }
 
 pub fn commit_unstaged_list(b: Rect) -> Rect {
-    Rect::new(left_x(b), top_pane_y(b), left_w(), top_pane_h(b))
+    Rect::new(left_x(b), top_pane_y(b), left_w(b), top_pane_h(b))
 }
 
 pub fn commit_staged_label(b: Rect) -> Rect {
-    Rect::new(left_x(b), bottom_label_y(b), left_w(), HEADING_H)
+    Rect::new(left_x(b), bottom_label_y(b), left_w(b), HEADING_H)
 }
 
 pub fn commit_staged_list(b: Rect) -> Rect {
-    Rect::new(left_x(b), bottom_pane_y(b), left_w(), bottom_pane_h(b))
+    Rect::new(left_x(b), bottom_pane_y(b), left_w(b), bottom_pane_h(b))
+}
+
+/// Width of each of the three left-column action buttons: they split the column
+/// width evenly (minus the two gaps) so the row spans the full list width above
+/// it at any window size.
+fn left_btn_w(b: Rect) -> i32 {
+    ((left_w(b) - 2 * BTN_GAP) / 3).max(0)
+}
+
+/// Left edge of the left-column button in `slot` (0..3), packed left-to-right.
+fn left_btn_x(b: Rect, slot: i32) -> i32 {
+    left_x(b) + slot * (left_btn_w(b) + BTN_GAP)
 }
 
 pub fn commit_stage_btn(b: Rect) -> Rect {
-    Rect::new(left_x(b), btn_y(b, LEFT_BTN_H), BTN_W, LEFT_BTN_H)
+    Rect::new(left_btn_x(b, 0), btn_y(b, LEFT_BTN_H), left_btn_w(b), LEFT_BTN_H)
 }
 
 pub fn commit_unstage_btn(b: Rect) -> Rect {
-    Rect::new(
-        left_x(b) + BTN_W + BTN_GAP,
-        btn_y(b, LEFT_BTN_H),
-        BTN_W,
-        LEFT_BTN_H,
-    )
+    Rect::new(left_btn_x(b, 1), btn_y(b, LEFT_BTN_H), left_btn_w(b), LEFT_BTN_H)
 }
 
 pub fn commit_rescan_btn(b: Rect) -> Rect {
-    Rect::new(
-        left_x(b) + 2 * (BTN_W + BTN_GAP),
-        btn_y(b, LEFT_BTN_H),
-        BTN_W,
-        LEFT_BTN_H,
-    )
+    Rect::new(left_btn_x(b, 2), btn_y(b, LEFT_BTN_H), left_btn_w(b), LEFT_BTN_H)
 }
 
 // Right column (diff view / commit message editor) ---------------------------
 
-/// Left edge of the right column: a half-gutter past the divider.
+/// Left edge of the right column: a half-gutter past the divider, which moves
+/// in with the left column on narrow layouts.
 fn right_inner_x(b: Rect) -> i32 {
-    b.x + LEFT_W + GUTTER / 2
+    b.x + left_col_w(b) + GUTTER / 2
 }
 /// Width of the right column: from `right_inner_x` to a `PAD` window margin.
 fn right_inner_w(b: Rect) -> i32 {
