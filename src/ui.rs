@@ -114,6 +114,12 @@ pub struct GitClient {
     commit_diff_view: Rc<RefCell<DiffView>>,
     message_editor: Rc<RefCell<TextEditor>>,
     amend_check: Rc<RefCell<Checkbox>>,
+    stage_btn: Rc<RefCell<Button>>,
+    unstage_btn: Rc<RefCell<Button>>,
+    rescan_btn: Rc<RefCell<Button>>,
+    /// Whether the last layout was at a narrow width; the Stage/Unstage/Rescan
+    /// buttons drop their text in narrow mode (see [`Self::apply_narrow`]).
+    narrow: bool,
 
     // ---- shared -----------------------------------------------------------
     dialog: Rc<RefCell<Dialog>>,
@@ -183,6 +189,24 @@ impl GitClient {
             Rect::new(0, 0, 0, 0),
             "Amend last commit",
         )));
+        // Created with the wide (symbol + text) labels; `layout` swaps them for
+        // symbol-only when the window is narrow.
+        let [stage_lbl, unstage_lbl, rescan_lbl] = left_btn_labels(false);
+        let stage_btn = Rc::new(RefCell::new(command_button(
+            stage_lbl,
+            &commands,
+            AppCommand::StageSelected,
+        )));
+        let unstage_btn = Rc::new(RefCell::new(command_button(
+            unstage_lbl,
+            &commands,
+            AppCommand::UnstageSelected,
+        )));
+        let rescan_btn = Rc::new(RefCell::new(command_button(
+            rescan_lbl,
+            &commands,
+            AppCommand::Rescan,
+        )));
 
         // No flat background fill: the staging panes float on the window's
         // desktop pattern (git-gui style), which shows through the gaps.
@@ -205,18 +229,9 @@ impl GitClient {
                 layout::commit_staged_label,
             )
             .add(Shared::new(staged_list.clone()), layout::commit_staged_list)
-            .add(
-                command_button("Stage \u{2192}", &commands, AppCommand::StageSelected),
-                layout::commit_stage_btn,
-            )
-            .add(
-                command_button("\u{2190} Unstage", &commands, AppCommand::UnstageSelected),
-                layout::commit_unstage_btn,
-            )
-            .add(
-                command_button("Rescan", &commands, AppCommand::Rescan),
-                layout::commit_rescan_btn,
-            )
+            .add(Shared::new(stage_btn.clone()), layout::commit_stage_btn)
+            .add(Shared::new(unstage_btn.clone()), layout::commit_unstage_btn)
+            .add(Shared::new(rescan_btn.clone()), layout::commit_rescan_btn)
             .add(Heading::new("Diff"), layout::commit_diff_label)
             .add(Shared::new(commit_diff_view.clone()), layout::commit_diff)
             .add(Heading::new("Commit Message"), layout::commit_msg_label)
@@ -245,6 +260,10 @@ impl GitClient {
             commit_diff_view,
             message_editor,
             amend_check,
+            stage_btn,
+            unstage_btn,
+            rescan_btn,
+            narrow: false,
             dialog,
             commands,
             reopen: None,
@@ -289,6 +308,21 @@ impl GitClient {
             Mode::Browse => &mut self.browse_root,
             Mode::Commit => &mut self.commit_root,
         }
+    }
+
+    /// Apply width-only affordances: in narrow mode the Stage/Unstage/Rescan
+    /// buttons shrink to share a third-width column (see `layout`), so they drop
+    /// their text and keep just the symbol. Cheap no-op when the state is
+    /// unchanged.
+    fn apply_narrow(&mut self, narrow: bool) {
+        if narrow == self.narrow {
+            return;
+        }
+        self.narrow = narrow;
+        let [stage, unstage, rescan] = left_btn_labels(narrow);
+        self.stage_btn.borrow_mut().label = stage.to_string();
+        self.unstage_btn.borrow_mut().label = unstage.to_string();
+        self.rescan_btn.borrow_mut().label = rescan.to_string();
     }
 
     fn set_mode(&mut self, mode: Mode) -> bool {
@@ -949,6 +983,7 @@ impl Widget for GitClient {
 
     fn layout(&mut self, bounds: Rect) {
         self.bounds = bounds;
+        self.apply_narrow(bounds.w <= layout::NARROW_W);
         self.browse_root.layout(bounds);
         self.commit_root.layout(bounds);
     }
@@ -1061,6 +1096,17 @@ fn about_item(dialog: &Rc<RefCell<Dialog>>) -> MenuItem {
 }
 
 /// A push button that pushes `command` onto the deferred-command queue.
+/// Labels for the Stage / Unstage / Rescan buttons. The arrow-from-bar and
+/// refresh symbols always lead; in narrow mode that's all there's room for, so
+/// the words are dropped.
+fn left_btn_labels(narrow: bool) -> [&'static str; 3] {
+    if narrow {
+        ["\u{21A7}", "\u{21A5}", "\u{21BB}"]
+    } else {
+        ["\u{21A7} Stage", "\u{21A5} Unstage", "\u{21BB} Rescan"]
+    }
+}
+
 fn command_button(
     label: &str,
     commands: &Rc<RefCell<Vec<AppCommand>>>,

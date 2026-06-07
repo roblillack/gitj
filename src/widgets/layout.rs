@@ -114,7 +114,6 @@ const GUTTER: i32 = 6;
 const HEADING_H: i32 = 18;
 /// Height of the bottom band reserved for the action buttons on both columns.
 const BTN_BAND_H: i32 = 34;
-const BTN_W: i32 = 96;
 const BTN_GAP: i32 = 4;
 const LEFT_BTN_H: i32 = 24;
 const AMEND_H: i32 = 24;
@@ -199,15 +198,11 @@ pub fn commit_staged_list(b: Rect) -> Rect {
     Rect::new(left_x(b), bottom_pane_y(b), left_w(b), bottom_pane_h(b))
 }
 
-/// Width of each of the three left-column action buttons. Fixed at [`BTN_W`],
-/// but shrunk to share the narrower left column on narrow layouts so the row
-/// stays within the column instead of overrunning the diff/editor.
+/// Width of each of the three left-column action buttons: they split the column
+/// width evenly (minus the two gaps) so the row spans the full list width above
+/// it at any window size.
 fn left_btn_w(b: Rect) -> i32 {
-    if narrow_left_cap(b).is_some() {
-        ((left_w(b) - 2 * BTN_GAP) / 3).max(0)
-    } else {
-        BTN_W
-    }
+    ((left_w(b) - 2 * BTN_GAP) / 3).max(0)
 }
 
 /// Left edge of the left-column button in `slot` (0..3), packed left-to-right.
