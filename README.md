@@ -1,8 +1,11 @@
-# journey
+# Journey
 
-A gitk-style repository browser built on the
-[saudade](../saudade) toolkit — a Windows 3.1–flavored,
-software-rendered git history viewer.
+[![CI](https://github.com/roblillack/journey/actions/workflows/ci.yml/badge.svg)](https://github.com/roblillack/journey/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/git-journey.svg)](https://crates.io/crates/git-journey)
+[![license](https://img.shields.io/crates/l/git-journey.svg)](LICENSE)
+
+A gitk-style repository browser and commit helper built on the
+[Saudade](https://github.com/roblillack/saudade) toolkit.
 
 ```
 journey            # browse the repository containing the current directory
@@ -35,6 +38,10 @@ automatically: committing drops you back to the log.
   file to stage / unstage it, or use the **Stage** / **Unstage** buttons.
 * The **diff pane** shows the selected file's change — working-tree-vs-index
   for unstaged files, index-vs-`HEAD` for staged ones.
+* **Revert / discard** an unstaged change (`git gui`'s **Revert Changes**,
+  **Ctrl+J**): a tracked file is reset to its index copy, while an *untracked*
+  file — having nothing to revert to — is offered up for deletion instead.
+  Either way a confirm dialog guards the irreversible discard.
 * A multi-line **message editor** and a **Commit** button.
 * **Amend last commit**: ticking the box pre-fills the editor with `HEAD`'s
   message *and* re-bases the staging view on `HEAD`'s parent, so the changes
@@ -45,9 +52,10 @@ automatically: committing drops you back to the log.
   which now shows the new commit.
 * **Keyboard shortcuts** mirror `git gui` (and are shown next to each Commit
   menu item): **Ctrl+Enter** commits, **Ctrl+T** stages the selected file,
-  **Ctrl+I** stages everything, **Ctrl+S** appends a `Signed-off-by` trailer,
-  **Ctrl+R** rescans, and the message editor takes the usual **Ctrl+C / X / V /
-  A**. **Ctrl+Q** quits from either screen.
+  **Ctrl+I** stages everything, **Ctrl+J** reverts (or deletes) the selected
+  unstaged file, **Ctrl+S** appends a `Signed-off-by` trailer, **Ctrl+R**
+  rescans, and the message editor takes the usual **Ctrl+C / X / V / A**.
+  **Ctrl+Q** quits from either screen.
 
 ### Throughout
 
@@ -62,16 +70,16 @@ Browse screen:
 
 ```
 ┌───────────────────────────────────────────────┐
-│ File  View  Help                    (menu bar) │
-│ Find: [ filter query ]              (toolbar)  │
+│ File  View  Help                   (menu bar) │
+│ Find: [ filter query ]             (toolbar)  │
 ├───────────────────────────────────────────────┤
-│ ●│ Uncommitted changes (2)   (dbl-click → ⎘)   │  working-tree rows
-│ ●│ Staged changes (1)                          │
-│ ●│ refs  summary            author      date   │  commit history
-│ ●│ ...                                          │  (graph + list)
+│ ●│ Uncommitted changes (2)  (dbl-click → ⎘)   │  working-tree rows
+│ ●│ Staged changes (1)                         │
+│ ●│ refs  summary           author      date   │  commit history
+│ ●│ ...                                        │  (graph + list)
 ├──────────────────────────┬────────────────────┤
-│ commit detail + diff      │ M changed/file.rs  │  diff  │  files
-│ (git show)                │ A another.rs       │
+│ commit detail + diff     │ M changed/file.rs  │  diff  │  files
+│ (git show)               │ A another.rs       │
 └──────────────────────────┴────────────────────┘
 ```
 
@@ -79,17 +87,17 @@ Commit screen:
 
 ```
 ┌───────────────────────────────────────────────┐
-│ File  Commit  View  Help            (menu bar) │
+│ File  Commit  View  Help           (menu bar) │
 ├──────────────────────────┬────────────────────┤
-│ Unstaged Changes          │ diff of the        │
-│ M src/ui.rs               │ selected file      │
-│ ? notes.md                │                    │
+│ Unstaged Changes         │ diff of the        │
+│ M src/ui.rs              │ selected file      │
+│ ? notes.md               │                    │
 ├──────────────────────────┤                    │
-│ Staged Changes            ├────────────────────┤
-│ A src/widgets/panel.rs    │ Commit Message     │
-│ M Cargo.toml              │ [ ............... ] │
+│ Staged Changes           ├────────────────────┤
+│ A src/widgets/panel.rs   │ Commit Message     │
+│ M Cargo.toml             │ [ .............. ] │
 ├──────────────────────────┤ ☐ Amend            │
-│ [Stage][Unstage][Rescan]  │           [Commit] │
+│ [Stage][Unstage][Rescan] │           [Commit] │
 └──────────────────────────┴────────────────────┘
 ```
 
@@ -100,7 +108,7 @@ abstraction, which keeps everything testable without a live repository.
 
 | Module | Contents |
 |--------|----------|
-| `backend` | `RepoBackend` trait + data types (`CommitInfo`, `FileChange`, `Diff`/`DiffLine`, `RefLabel`, `WorkingStatus`). Browse reads history/diffs; commit mode adds working-tree status, per-file diffs, `stage`/`unstage`, `commit` (with amend). Implementations: `Git2Backend` (live, libgit2) and `FixtureBackend` (deterministic, in-memory, with a simulated working tree). |
+| `backend` | `RepoBackend` trait + data types (`CommitInfo`, `FileChange`, `Diff`/`DiffLine`, `RefLabel`, `WorkingStatus`). Browse reads history/diffs; commit mode adds working-tree status, per-file diffs, `stage`/`unstage`, `revert`/`delete_untracked`, `commit` (with amend). Implementations: `Git2Backend` (live, libgit2) and `FixtureBackend` (deterministic, in-memory, with a simulated working tree). |
 | `widgets` | git-specific widgets — `CommitList` (graph + badges + columns), `DiffView` (colored diff), `SearchBar`, `Heading`, `graph` (DAG lane assignment); `Shell`, a generic flat-focus container, plus a `layout` module giving the browse and commit screens their rectangles; generic `Shared<W>` adapter. |
 | `ui` | `GitClient`, the top-level widget. It owns both screens (a `Shell` each), switches between them, and — since saudade widgets are callback-free — polls selections and a small command queue after each event to rebuild dependent panes. |
 
@@ -115,8 +123,11 @@ abstraction, which keeps everything testable without a live repository.
   signatures/timestamps and reads it back through `Git2Backend`, so the live
   backend is covered deterministically.
 * **`tests/commit_backend.rs`** exercises commit mode end to end: it stages,
-  unstages, commits and amends in a throwaway repository (and against the
-  fixture), asserting the working-tree status at each step.
+  unstages, reverts, commits and amends in a throwaway repository (and against
+  the fixture), asserting the working-tree status at each step.
+* **`tests/shortcuts.rs`** drives a real `GitClient` through synthetic key
+  events (Ctrl+T / I / J / Enter / Q) and asserts the resulting working-tree
+  and commit state — the runtime path minus the windowing.
 * **Unit tests** cover the graph lane algorithm and date formatting.
 
 ```

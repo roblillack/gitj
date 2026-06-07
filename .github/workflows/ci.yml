@@ -1,0 +1,50 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ci:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Linux builds saudade's SCTK + softbuffer Wayland backends, which link
+      # libwayland and libxkbcommon. X11 is loaded via dlopen at runtime, so no
+      # X11 dev packages are needed here. git2 builds its vendored libgit2 with
+      # the toolchain already on the runner. macOS/Windows need none.
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev pkg-config
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Lint (clippy)
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      # `--all-targets` covers the unit, integration and snapshot tests. The
+      # library carries no doctests, so there is nothing extra to run for them.
+      - name: Test
+        run: cargo test --workspace --all-targets --all-features
+
+      - name: Build (release)
+        run: cargo build --workspace --release

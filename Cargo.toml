@@ -2,12 +2,22 @@
 name = "journey"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.88"
+description = "A gitk-style, Windows 3.1-flavored git repository browser built on the saudade toolkit"
+authors = ["Robert Lillack <rob@lillack.net>"]
+repository = "https://github.com/roblillack/journey"
+homepage = "https://github.com/roblillack/journey"
+license = "MIT"
+readme = "README.md"
+keywords = ["git", "gitk", "git-gui", "retro", "gui"]
+categories = ["command-line-utilities", "development-tools", "gui"]
 
-# A gitk-style repository browser built on the saudade toolkit.
-# See ../saudade for the GUI library.
+# The snapshot baselines and bundled test fonts are only needed to run the test
+# suite, not to build or use the crate — keep them out of the published package.
+exclude = ["tests/snapshots", "tests/fonts"]
 
 [dependencies]
-saudade = { path = "../saudade" }
+saudade = "0.2"
 git2 = { version = "0.18", default-features = false }
 
 [dev-dependencies]

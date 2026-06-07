@@ -217,10 +217,7 @@ fn git2_revert_discards_working_changes() {
 
     // The working file rewinds to the *index* (the staged "two" version), not
     // all the way to HEAD: only the unstaged "three" line is discarded.
-    assert_eq!(
-        fs::read_to_string(dir.join("a.txt")).unwrap(),
-        "one\ntwo\n"
-    );
+    assert_eq!(fs::read_to_string(dir.join("a.txt")).unwrap(), "one\ntwo\n");
     let ws = backend.working_status(false);
     assert!(
         !ws.unstaged.iter().any(|f| f.path == "a.txt"),
