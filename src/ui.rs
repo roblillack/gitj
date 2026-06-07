@@ -579,7 +579,7 @@ impl GitClient {
             self.working.unstaged.len()
         ));
         self.staged_heading.borrow_mut().set_text(format!(
-            "Staged Changes — will commit ({})",
+            "Staged Changes ({})",
             self.working.staged.len()
         ));
 
