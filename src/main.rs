@@ -13,6 +13,10 @@ use saudade::{App, Theme, WindowConfig};
 
 const WINDOW_W: i32 = 900;
 const WINDOW_H: i32 = 640;
+/// Floor on the resizable window, so the panes never collapse past the point
+/// where the narrow (third-width) commit/browse layout still works.
+const MIN_WINDOW_W: i32 = 450;
+const MIN_WINDOW_H: i32 = 320;
 
 fn main() -> ExitCode {
     let path = std::env::args().nth(1).unwrap_or_else(|| ".".to_string());
@@ -38,7 +42,9 @@ fn main() -> ExitCode {
     }));
 
     App::new(
-        WindowConfig::new(title, WINDOW_W, WINDOW_H).resizable(true),
+        WindowConfig::new(title, WINDOW_W, WINDOW_H)
+            .resizable(true)
+            .min_size(MIN_WINDOW_W, MIN_WINDOW_H),
         root,
     )
     .with_theme(Theme::windows_31())
