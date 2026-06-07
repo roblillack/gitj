@@ -3,14 +3,14 @@ name = "git-journey"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
-description = "A gitk-style, Windows 3.1-flavored git repository browser built on the saudade toolkit"
+description = "A gitk-style, Windows 3.1-flavored git repository browser and commit helper built on the Saudade toolkit"
 authors = ["Robert Lillack <rob@lillack.net>"]
 repository = "https://github.com/roblillack/git-journey"
 homepage = "https://github.com/roblillack/git-journey"
 license = "MIT"
 readme = "README.md"
 keywords = ["git", "gitk", "git-gui", "retro", "gui"]
-categories = ["command-line-utilities", "development-tools", "gui"]
+categories = ["gui", "development-tools"]
 
 # The snapshot baselines and bundled test fonts are only needed to run the test
 # suite (and the screenshots example, which renders the README images from those

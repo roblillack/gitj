@@ -1,4 +1,4 @@
-# Journey
+# Git Journey
 
 [![CI](https://github.com/roblillack/git-journey/actions/workflows/ci.yml/badge.svg)](https://github.com/roblillack/git-journey/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/git-journey.svg)](https://crates.io/crates/git-journey)
@@ -36,6 +36,13 @@ offscreen `MockBackend`, then wraps each window in Canoe-style chrome — title
 bar, frame and drop shadow — with `render_framed` and captures it at 2× for
 crisp hi-DPI output. Regenerate them with `cargo run --example screenshots`.
 -->
+
+
+### Installation
+
+```sh
+cargo install git-journey
+```
 
 ### Browse
 
