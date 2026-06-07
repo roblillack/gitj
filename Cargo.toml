@@ -13,8 +13,9 @@ keywords = ["git", "gitk", "git-gui", "retro", "gui"]
 categories = ["command-line-utilities", "development-tools", "gui"]
 
 # The snapshot baselines and bundled test fonts are only needed to run the test
-# suite, not to build or use the crate — keep them out of the published package.
-exclude = ["tests/snapshots", "tests/fonts"]
+# suite (and the screenshots example, which renders the README images from those
+# fonts), not to build or use the crate — keep them out of the published package.
+exclude = ["tests/snapshots", "tests/fonts", "examples"]
 
 [dependencies]
 saudade = "0.3"

@@ -64,42 +64,23 @@ automatically: committing drops you back to the log.
 * Keyboard navigation: Tab cycles the panes, arrows/PageUp/Down drive the
   focused list or scroll the diff.
 
-## Layout
+## Screenshots
 
-Browse screen:
+Browse screen — gitk-style history with the DAG graph, ref badges and a
+`git show`-style detail/diff pane:
 
-```
-┌───────────────────────────────────────────────┐
-│ File  View  Help                   (menu bar) │
-│ Find: [ filter query ]             (toolbar)  │
-├───────────────────────────────────────────────┤
-│ ●│ Uncommitted changes (2)  (dbl-click → ⎘)   │  working-tree rows
-│ ●│ Staged changes (1)                         │
-│ ●│ refs  summary           author      date   │  commit history
-│ ●│ ...                                        │  (graph + list)
-├──────────────────────────┬────────────────────┤
-│ commit detail + diff     │ M changed/file.rs  │  diff  │  files
-│ (git show)               │ A another.rs       │
-└──────────────────────────┴────────────────────┘
-```
+![The browse screen](docs/screenshot-browse.png)
 
-Commit screen:
+Commit screen — `git gui`-style staging with unstaged/staged lists, a per-file
+diff and the message editor:
 
-```
-┌───────────────────────────────────────────────┐
-│ File  Commit  View  Help           (menu bar) │
-├──────────────────────────┬────────────────────┤
-│ Unstaged Changes         │ diff of the        │
-│ M src/ui.rs              │ selected file      │
-│ ? notes.md               │                    │
-├──────────────────────────┤                    │
-│ Staged Changes           ├────────────────────┤
-│ A src/widgets/panel.rs   │ Commit Message     │
-│ M Cargo.toml             │ [ .............. ] │
-├──────────────────────────┤ ☐ Amend            │
-│ [Stage][Unstage][Rescan] │           [Commit] │
-└──────────────────────────┴────────────────────┘
-```
+![The commit screen](docs/screenshot-commit.png)
+
+These images are rendered by [`examples/screenshots.rs`](examples/screenshots.rs),
+which drives the real UI against the in-memory `FixtureBackend` through saudade's
+offscreen `MockBackend`, then wraps each window in Canoe-style chrome — title
+bar, frame and drop shadow — with `render_framed` and captures it at 2× for
+crisp hi-DPI output. Regenerate them with `cargo run --example screenshots`.
 
 ## Architecture
 
