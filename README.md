@@ -105,7 +105,7 @@ abstraction, which keeps everything testable without a live repository.
 ## Testing
 
 * **Pixel snapshots** (`tests/snapshots.rs`) render the real UI through
-  saudade's offscreen `MockBackend` at 1.0/1.25/1.5/2.0× against the
+  saudade's offscreen `MockBackend` at 1.0× against the
   in-memory `FixtureBackend` and bundled DejaVu fonts, comparing PNG bytes
   with `insta`. Regenerate with `INSTA_UPDATE=always cargo test --test
   snapshots`, then review with `cargo insta review`.
