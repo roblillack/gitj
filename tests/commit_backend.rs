@@ -185,6 +185,10 @@ fn git2_revert_discards_working_changes() {
         let mut cfg = repo.config().unwrap();
         cfg.set_str("user.name", "Tester").unwrap();
         cfg.set_str("user.email", "tester@example.com").unwrap();
+        // GitHub's Windows runners default to core.autocrlf=true, which makes
+        // the revert below check `a.txt` back out with CRLF newlines and breaks
+        // the byte-exact assertion. Pin it off so the test is host-independent.
+        cfg.set_bool("core.autocrlf", false).unwrap();
     }
     fs::write(dir.join("a.txt"), "one\n").unwrap();
     let backend = Git2Backend::open(dir.to_str().unwrap()).unwrap();
