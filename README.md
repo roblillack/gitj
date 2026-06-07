@@ -1,6 +1,6 @@
 # Journey
 
-[![CI](https://github.com/roblillack/journey/actions/workflows/ci.yml/badge.svg)](https://github.com/roblillack/journey/actions/workflows/ci.yml)
+[![CI](https://github.com/roblillack/git-journey/actions/workflows/ci.yml/badge.svg)](https://github.com/roblillack/git-journey/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/git-journey.svg)](https://crates.io/crates/git-journey)
 [![license](https://img.shields.io/crates/l/git-journey.svg)](LICENSE)
 
@@ -8,11 +8,11 @@ A gitk-style repository browser and commit helper built on the
 [Saudade](https://github.com/roblillack/saudade) toolkit.
 
 ```
-journey            # browse the repository containing the current directory
-journey /path/repo # browse the repository at (or above) a given path
+gitj            # browse the repository containing the current directory
+gitj /path/repo # browse the repository at (or above) a given path
 ```
 
-journey has two screens — the gitk-style **browse** (history) screen and the
+Journey has two screens — the gitk-style **browse** (history) screen and the
 `git gui`-style **commit** (staging) screen. Switch between them from the
 **View** menu, by double-clicking a working-tree entry in the log, or
 automatically: committing drops you back to the log.

@@ -1,12 +1,12 @@
 [package]
-name = "journey"
+name = "git-journey"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
 description = "A gitk-style, Windows 3.1-flavored git repository browser built on the saudade toolkit"
 authors = ["Robert Lillack <rob@lillack.net>"]
-repository = "https://github.com/roblillack/journey"
-homepage = "https://github.com/roblillack/journey"
+repository = "https://github.com/roblillack/git-journey"
+homepage = "https://github.com/roblillack/git-journey"
 license = "MIT"
 readme = "README.md"
 keywords = ["git", "gitk", "git-gui", "retro", "gui"]
@@ -30,5 +30,5 @@ name = "journey"
 path = "src/lib.rs"
 
 [[bin]]
-name = "journey"
+name = "gitj"
 path = "src/main.rs"

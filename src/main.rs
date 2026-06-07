@@ -1,6 +1,6 @@
-//! journey — a gitk-style repository browser.
+//! git-journey — a gitk-style repository browser, installed as `gitj`.
 //!
-//! Usage: `journey [PATH]`. With no argument it opens the repository
+//! Usage: `gitj [PATH]`. With no argument it opens the repository
 //! containing the current working directory; otherwise it discovers the
 //! repository at (or above) PATH.
 
@@ -21,7 +21,7 @@ fn main() -> ExitCode {
         Ok(backend) => Rc::new(backend),
         Err(err) => {
             eprintln!(
-                "journey: cannot open a git repository at {path:?}: {}",
+                "gitj: cannot open a git repository at {path:?}: {}",
                 err.message()
             );
             return ExitCode::FAILURE;
