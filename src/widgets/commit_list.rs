@@ -335,6 +335,7 @@ impl Widget for CommitList {
             Event::PointerDown {
                 pos,
                 button: MouseButton::Left,
+                ..
             } => {
                 ctx.request_focus();
                 if let Some(row) = self.row_at(*pos) {

@@ -36,6 +36,7 @@ fn click(x: i32, y: i32) -> Event {
     Event::PointerDown {
         pos: Point::new(x, y),
         button: MouseButton::Left,
+        modifiers: Modifiers::default(),
     }
 }
 
@@ -43,6 +44,24 @@ fn release(x: i32, y: i32) -> Event {
     Event::PointerUp {
         pos: Point::new(x, y),
         button: MouseButton::Left,
+        modifiers: Modifiers::default(),
+    }
+}
+
+fn motion(x: i32, y: i32) -> Event {
+    Event::PointerMove {
+        pos: Point::new(x, y),
+    }
+}
+
+fn shift_click(x: i32, y: i32) -> Event {
+    Event::PointerDown {
+        pos: Point::new(x, y),
+        button: MouseButton::Left,
+        modifiers: Modifiers {
+            shift: true,
+            ..Modifiers::default()
+        },
     }
 }
 
@@ -184,6 +203,70 @@ fn commit_mode_staged_file() {
             Box::new(client)
         },
         || vec![click(60, 304)], // first row of the lower-left (staged) list
+    );
+}
+
+/// Drag-selecting the two `+` lines of the auto-selected unstaged file's diff
+/// highlights them (translucent overlay + marching-ants border) and floats a
+/// "Stage" button in the selection's bottom-right corner — partial staging.
+/// The diff view sits at x∈[323,814]; its rows render at y = 42 + row*16, so the
+/// two additions of `src/ui.rs` are rows 3 and 4 (y ≈ 96 and 110).
+#[test]
+fn commit_mode_diff_range_stage() {
+    snapshot_with_events(
+        "commit_mode_diff_range_stage",
+        CW,
+        CH,
+        || {
+            let mut client = sample_client();
+            client.enter_commit_mode();
+            Box::new(client)
+        },
+        || vec![click(400, 96), motion(400, 110), release(400, 110)],
+    );
+}
+
+/// Clicking a hunk header selects the whole hunk (its content rows get the
+/// overlay + Stage button) while the `diff --git` and `@@` header rows
+/// themselves stay unhighlighted — headers aren't selectable. The unstaged
+/// file's hunk header is row 1 (y ≈ 66).
+#[test]
+fn commit_mode_diff_hunk_header_selects_hunk() {
+    snapshot_with_events(
+        "commit_mode_diff_hunk_header_selects_hunk",
+        CW,
+        CH,
+        || {
+            let mut client = sample_client();
+            client.enter_commit_mode();
+            Box::new(client)
+        },
+        || vec![click(400, 66)], // the @@ hunk header
+    );
+}
+
+/// On a staged file, clicking one line then Shift-clicking another selects the
+/// range and floats an "Unstage" button — the staged-side mirror of partial
+/// staging. Selects the lower-left (staged) file first, then its three `+` rows.
+#[test]
+fn commit_mode_diff_range_unstage() {
+    snapshot_with_events(
+        "commit_mode_diff_range_unstage",
+        CW,
+        CH,
+        || {
+            let mut client = sample_client();
+            client.enter_commit_mode();
+            Box::new(client)
+        },
+        || {
+            vec![
+                click(60, 304), // select the first staged file
+                click(400, 96), // anchor on its first `+` line (row 3)
+                release(400, 96),
+                shift_click(400, 128), // extend to its last `+` line (row 5)
+            ]
+        },
     );
 }
 

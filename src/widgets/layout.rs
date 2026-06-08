@@ -211,15 +211,30 @@ fn left_btn_x(b: Rect, slot: i32) -> i32 {
 }
 
 pub fn commit_stage_btn(b: Rect) -> Rect {
-    Rect::new(left_btn_x(b, 0), btn_y(b, LEFT_BTN_H), left_btn_w(b), LEFT_BTN_H)
+    Rect::new(
+        left_btn_x(b, 0),
+        btn_y(b, LEFT_BTN_H),
+        left_btn_w(b),
+        LEFT_BTN_H,
+    )
 }
 
 pub fn commit_unstage_btn(b: Rect) -> Rect {
-    Rect::new(left_btn_x(b, 1), btn_y(b, LEFT_BTN_H), left_btn_w(b), LEFT_BTN_H)
+    Rect::new(
+        left_btn_x(b, 1),
+        btn_y(b, LEFT_BTN_H),
+        left_btn_w(b),
+        LEFT_BTN_H,
+    )
 }
 
 pub fn commit_rescan_btn(b: Rect) -> Rect {
-    Rect::new(left_btn_x(b, 2), btn_y(b, LEFT_BTN_H), left_btn_w(b), LEFT_BTN_H)
+    Rect::new(
+        left_btn_x(b, 2),
+        btn_y(b, LEFT_BTN_H),
+        left_btn_w(b),
+        LEFT_BTN_H,
+    )
 }
 
 // Right column (diff view / commit message editor) ---------------------------
