@@ -17,7 +17,10 @@ categories = ["gui", "development-tools"]
 # fonts, the screenshots example, the ~1 MB docs/ PNGs, or CI config. crates.io
 # renders the README's relative images from the `repository`, so dropping docs/
 # from the package doesn't affect the rendered crate page.
-include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
+# `assets/status/*.svg` are baked by `include_svg!` at *build* time, including
+# the downstream build of the published crate, so they must travel in the
+# package or a fresh `cargo install gitj` would fail to compile.
+include = ["src/**/*.rs", "assets/status/*.svg", "Cargo.toml", "README.md", "LICENSE"]
 
 [dependencies]
 saudade = "0.3"

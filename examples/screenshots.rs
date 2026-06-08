@@ -33,9 +33,9 @@ const WINDOW_H: i32 = 400;
 const SCALE: f32 = 2.0;
 
 fn main() {
-    // Mirror the live binary's window title (`Journey — <repo path>`); the app
+    // Mirror the live binary's window title (`Git Journey — <repo path>`); the app
     // is a resizable top-level window, so use the resizable Canoe frame.
-    let title = format!("Journey — {}", FixtureBackend::sample().path());
+    let title = format!("Git Journey — {}", FixtureBackend::sample().path());
 
     // Browse screen: the default history view with the newest commit selected,
     // its files listed and the whole-commit diff shown.
