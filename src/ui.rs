@@ -16,7 +16,7 @@ use std::rc::Rc;
 
 use saudade::{
     Button, Checkbox, Dialog, Event, EventCtx, Key, List, ListItem, Menu, MenuBar, MenuItem,
-    NamedKey, Painter, PopupRequest, Rect, TextEditor, Theme, Widget,
+    NamedKey, Painter, PopupRequest, Rect, SvgImage, TextEditor, Theme, Widget, include_svg,
 };
 
 use crate::backend::{
@@ -1209,9 +1209,36 @@ pub fn commit_row(commit: &CommitInfo) -> CommitRow {
     }
 }
 
-/// Format a changed file as a list row: status badge + path.
+/// Format a changed file as a list row: a colored status marker in the icon
+/// gutter (see [`status_icon`]) followed by the path. The marker replaces the
+/// old single-letter text badge — the same A/M/D/… letters, but baked from SVG
+/// so they stay crisp at any DPI and legible on the navy selection band.
 pub fn file_row(file: &FileChange) -> ListItem {
-    ListItem::new(format!("{}  {}", file.status.badge(), file.display()))
+    ListItem::new(file.display()).with_svg_icon(status_icon(file.status))
+}
+
+/// The compile-time-baked status marker for a [`ChangeStatus`] — a small chip
+/// carrying the letter [`ChangeStatus::badge`] would print. Each SVG lives in
+/// `assets/status/`; `include_svg!` flattens it to polygons at build time, so no
+/// SVG parser ships in the binary (see saudade's `include_svg!`).
+fn status_icon(status: ChangeStatus) -> SvgImage {
+    const ADDED: SvgImage = include_svg!("assets/status/added.svg");
+    const MODIFIED: SvgImage = include_svg!("assets/status/modified.svg");
+    const DELETED: SvgImage = include_svg!("assets/status/deleted.svg");
+    const RENAMED: SvgImage = include_svg!("assets/status/renamed.svg");
+    const COPIED: SvgImage = include_svg!("assets/status/copied.svg");
+    const TYPECHANGE: SvgImage = include_svg!("assets/status/typechange.svg");
+    const UNKNOWN: SvgImage = include_svg!("assets/status/unknown.svg");
+
+    match status {
+        ChangeStatus::Added => ADDED,
+        ChangeStatus::Modified => MODIFIED,
+        ChangeStatus::Deleted => DELETED,
+        ChangeStatus::Renamed => RENAMED,
+        ChangeStatus::Copied => COPIED,
+        ChangeStatus::TypeChange => TYPECHANGE,
+        ChangeStatus::Untracked | ChangeStatus::Other => UNKNOWN,
+    }
 }
 
 #[cfg(test)]
