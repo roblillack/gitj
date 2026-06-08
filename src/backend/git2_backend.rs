@@ -218,6 +218,13 @@ impl RepoBackend for Git2Backend {
         std::fs::remove_file(workdir.join(path)).map_err(|e| e.to_string())
     }
 
+    fn apply_to_index(&self, patch: &str) -> Result<(), String> {
+        let diff = git2::Diff::from_buffer(patch.as_bytes()).map_err(err_msg)?;
+        self.repo
+            .apply(&diff, git2::ApplyLocation::Index, None)
+            .map_err(err_msg)
+    }
+
     fn commit(&self, message: &str, amend: bool) -> Result<(), String> {
         if message.trim().is_empty() {
             return Err("Please enter a commit message.".into());

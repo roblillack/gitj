@@ -12,6 +12,7 @@
 //! the [`RepoBackend`].
 
 use std::cell::RefCell;
+use std::collections::BTreeSet;
 use std::rc::Rc;
 
 use saudade::{
@@ -20,11 +21,12 @@ use saudade::{
 };
 
 use crate::backend::{
-    ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, RefKind, RepoBackend,
-    WorkingStatus,
+    ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, PartialMode, RefKind,
+    RepoBackend, WorkingStatus, build_partial_patch,
 };
 use crate::widgets::{
-    CommitList, CommitRow, DiffView, Heading, SearchBar, Shared, Shell, compute_graph, layout,
+    CommitList, CommitRow, DiffMode, DiffView, Heading, SearchBar, Shared, Shell, compute_graph,
+    layout,
 };
 
 /// Direct-child index of the history list in the browse shell (focused first).
@@ -601,6 +603,14 @@ impl GitClient {
 
     /// Re-read the working tree and rebuild the staged / unstaged lists.
     fn rescan(&mut self) {
+        self.rescan_selecting(None);
+    }
+
+    /// Re-read the working tree and rebuild the staged / unstaged lists. When
+    /// `prefer` names a `(side, path)` that survives the rescan, that file stays
+    /// selected (so partial staging keeps the same file focused in the diff);
+    /// otherwise the selection defaults to the first file.
+    fn rescan_selecting(&mut self, prefer: Option<(Side, String)>) {
         let amend = self.amend_check.borrow().is_checked();
         self.working = self.backend.working_status(amend);
 
@@ -612,20 +622,34 @@ impl GitClient {
             "Unstaged Changes ({})",
             self.working.unstaged.len()
         ));
-        self.staged_heading.borrow_mut().set_text(format!(
-            "Staged Changes ({})",
-            self.working.staged.len()
-        ));
+        self.staged_heading
+            .borrow_mut()
+            .set_text(format!("Staged Changes ({})", self.working.staged.len()));
 
         self.prev_unstaged_sel = None;
         self.prev_staged_sel = None;
-        self.commit_diff_view.borrow_mut().set_diff(Diff::default());
+        {
+            let mut view = self.commit_diff_view.borrow_mut();
+            view.set_mode(DiffMode::Plain);
+            view.set_diff(Diff::default());
+        }
 
-        // Default the selection to the first file so the diff pane isn't blank.
-        if !self.working.unstaged.is_empty() {
-            self.apply_commit_selection(Side::Unstaged, 0);
-        } else if !self.working.staged.is_empty() {
-            self.apply_commit_selection(Side::Staged, 0);
+        // Keep the preferred file selected when it's still present; otherwise
+        // default to the first file so the diff pane isn't blank.
+        let target = prefer.and_then(|(side, path)| {
+            let files = match side {
+                Side::Unstaged => &self.working.unstaged,
+                Side::Staged => &self.working.staged,
+            };
+            files.iter().position(|f| f.path == path).map(|i| (side, i))
+        });
+        match target {
+            Some((side, i)) => self.apply_commit_selection(side, i),
+            None if !self.working.unstaged.is_empty() => {
+                self.apply_commit_selection(Side::Unstaged, 0)
+            }
+            None if !self.working.staged.is_empty() => self.apply_commit_selection(Side::Staged, 0),
+            None => {}
         }
     }
 
@@ -655,13 +679,27 @@ impl GitClient {
             .get(i)
             .map(|f| self.backend.working_diff(&f.path, staged, amend))
             .unwrap_or_default();
-        self.commit_diff_view.borrow_mut().set_diff(diff);
+        // Unstaged files offer per-line staging; staged files, per-line
+        // unstaging. (Only the commit screen's diff view is ever non-Plain.)
+        let mode = match side {
+            Side::Unstaged => DiffMode::Stage,
+            Side::Staged => DiffMode::Unstage,
+        };
+        let mut view = self.commit_diff_view.borrow_mut();
+        view.set_mode(mode);
+        view.set_diff(diff);
     }
 
     /// Poll the commit screen after an event: handle stage/unstage activations
     /// (double-click or Enter on a list), selection-driven diff updates, and
     /// the amend toggle.
     fn sync_commit(&mut self) -> bool {
+        // The Stage/Unstage button floating over a highlighted diff range.
+        let action = self.commit_diff_view.borrow_mut().take_action();
+        if let Some((lo, hi)) = action {
+            return self.apply_partial(lo, hi);
+        }
+
         let unstaged_activated = self.unstaged_list.borrow_mut().take_activated();
         if let Some(i) = unstaged_activated {
             self.stage_index(i);
@@ -792,6 +830,62 @@ impl GitClient {
             }
         }
         self.rescan();
+    }
+
+    /// The file whose diff the commit screen is currently showing, as
+    /// `(side, index)` — whichever list holds the selection.
+    fn current_commit_target(&self) -> Option<(Side, usize)> {
+        if let Some(i) = self.unstaged_list.borrow().selected_index() {
+            Some((Side::Unstaged, i))
+        } else {
+            self.staged_list
+                .borrow()
+                .selected_index()
+                .map(|i| (Side::Staged, i))
+        }
+    }
+
+    /// Stage (or unstage) just the highlighted rows `lo..=hi` of the current
+    /// file's diff: rebuild a patch covering only those lines and apply it to
+    /// the index. An unstaged file stages the selection; a staged one unstages
+    /// it. A no-op when the range covers no actual change.
+    fn apply_partial(&mut self, lo: usize, hi: usize) -> bool {
+        let Some((side, i)) = self.current_commit_target() else {
+            return false;
+        };
+        let staged = matches!(side, Side::Staged);
+        let files = match side {
+            Side::Unstaged => &self.working.unstaged,
+            Side::Staged => &self.working.staged,
+        };
+        let Some(path) = files.get(i).map(|f| f.path.clone()) else {
+            return false;
+        };
+
+        let amend = self.amend_check.borrow().is_checked();
+        let diff = self.backend.working_diff(&path, staged, amend);
+        let mode = if staged {
+            PartialMode::Unstage
+        } else {
+            PartialMode::Stage
+        };
+        let selected: BTreeSet<usize> = (lo..=hi).collect();
+        let Some(patch) = build_partial_patch(&diff, &selected, mode) else {
+            return false;
+        };
+
+        if let Err(e) = self.backend.apply_to_index(&patch) {
+            let title = if staged {
+                "Unstage failed"
+            } else {
+                "Stage failed"
+            };
+            self.dialog.borrow_mut().show_error(title, &e);
+        }
+        // Keep the same file focused on the same side so the user can stage the
+        // next chunk without the selection jumping back to the first file.
+        self.rescan_selecting(Some((side, path)));
+        true
     }
 
     /// `git gui`'s "Revert Changes" (Ctrl+J): discard the working-tree changes
@@ -1286,5 +1380,101 @@ mod tests {
         assert!(!is_trailer_line("Just a normal sentence."));
         assert!(!is_trailer_line("Fixes: #123"));
         assert!(!is_trailer_line(""));
+    }
+}
+
+#[cfg(test)]
+mod commit_focus_tests {
+    use super::*;
+    use crate::backend::{Git2Backend, is_change_line};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    /// A throwaway repo with two committed files, each then given two unstaged
+    /// edits far enough apart to land in separate hunks. Returns the scratch dir
+    /// (delete when done) and an opened backend.
+    fn two_dirty_files() -> (std::path::PathBuf, Git2Backend) {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("journey-focus-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let repo = git2::Repository::init(&dir).unwrap();
+        let sig =
+            git2::Signature::new("T", "t@example.com", &git2::Time::new(1_700_000_000, 0)).unwrap();
+
+        let base: String = (1..=20).map(|n| format!("l{n:02}\n")).collect();
+        for name in ["a.txt", "b.txt"] {
+            std::fs::write(dir.join(name), &base).unwrap();
+        }
+        {
+            let mut index = repo.index().unwrap();
+            index.add_path(std::path::Path::new("a.txt")).unwrap();
+            index.add_path(std::path::Path::new("b.txt")).unwrap();
+            index.write().unwrap();
+            let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+            repo.commit(Some("HEAD"), &sig, &sig, "base\n", &tree, &[])
+                .unwrap();
+        }
+        let edited = base
+            .replace("l02\n", "l02-edited\n")
+            .replace("l18\n", "l18-edited\n");
+        for name in ["a.txt", "b.txt"] {
+            std::fs::write(dir.join(name), &edited).unwrap();
+        }
+
+        let backend = Git2Backend::open(dir.to_str().unwrap()).unwrap();
+        (dir, backend)
+    }
+
+    /// Partially staging a file keeps that same file selected and shown in the
+    /// diff, rather than snapping the selection back to the first file.
+    #[test]
+    fn partial_stage_keeps_the_same_file_focused() {
+        let (dir, backend) = two_dirty_files();
+        let mut client = GitClient::new(Rc::new(backend));
+        client.enter_commit_mode();
+
+        // Select the *second* unstaged file, so a jump-to-first would be visible.
+        let b = client
+            .working
+            .unstaged
+            .iter()
+            .position(|f| f.path == "b.txt")
+            .expect("b.txt is unstaged");
+        assert_ne!(b, 0, "b.txt must not already be the first row");
+        client.apply_commit_selection(Side::Unstaged, b);
+
+        // Stage only b.txt's first change (its two `l02` rows), leaving the
+        // line-18 change unstaged so the file stays in the unstaged list.
+        let diff = client.backend.working_diff("b.txt", false, false);
+        let rows: Vec<usize> = diff
+            .lines
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| is_change_line(l.kind) && l.text.contains("l02"))
+            .map(|(i, _)| i)
+            .collect();
+        let (lo, hi) = (rows[0], *rows.last().unwrap());
+        assert!(client.apply_partial(lo, hi));
+
+        // The change moved to the index but b.txt is still dirty…
+        assert!(client.working.staged.iter().any(|f| f.path == "b.txt"));
+        let still = client
+            .working
+            .unstaged
+            .iter()
+            .position(|f| f.path == "b.txt")
+            .expect("b.txt still has unstaged changes");
+        // …and it is still the selected/shown file, not the first one.
+        assert_eq!(
+            client.unstaged_list.borrow().selected_index(),
+            Some(still),
+            "the partially-staged file stays focused"
+        );
+        assert_eq!(client.staged_list.borrow().selected_index(), None);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

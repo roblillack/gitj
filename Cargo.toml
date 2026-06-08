@@ -23,7 +23,7 @@ categories = ["gui", "development-tools"]
 include = ["src/**/*.rs", "assets/status/*.svg", "Cargo.toml", "README.md", "LICENSE"]
 
 [dependencies]
-saudade = "0.3"
+saudade = "0.4"
 git2 = { version = "0.18", default-features = false }
 
 [dev-dependencies]

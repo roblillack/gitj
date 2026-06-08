@@ -7,9 +7,11 @@
 
 pub mod fixture;
 mod git2_backend;
+pub mod patch;
 
 pub use fixture::FixtureBackend;
 pub use git2_backend::Git2Backend;
+pub use patch::{PartialMode, build_partial_patch, is_change_line};
 
 /// What a ref pointing at a commit is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -256,6 +258,18 @@ pub trait RepoBackend {
     /// never had a copy. The caller is responsible for only passing untracked
     /// paths.
     fn delete_untracked(&self, path: &str) -> Result<(), String>;
+
+    /// Apply a unified-diff patch directly to the index (`git apply --cached`),
+    /// the mechanism behind partial (line-range) staging and unstaging. The
+    /// patch is always oriented to apply *forward* to the current index — the
+    /// stage-vs-unstage direction is baked in by
+    /// [`build_partial_patch`](patch::build_partial_patch). The default
+    /// implementation rejects it; backends that can model partial application
+    /// override it.
+    fn apply_to_index(&self, patch: &str) -> Result<(), String> {
+        let _ = patch;
+        Err("Partial staging is not supported by this backend.".into())
+    }
 
     /// Commit the staged changes with `message`. When `amend` is set, replace
     /// the current `HEAD` commit instead of adding a new one.

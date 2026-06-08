@@ -121,6 +121,7 @@ fn click(x: i32, y: i32) -> Event {
     Event::PointerDown {
         pos: Point::new(x, y),
         button: MouseButton::Left,
+        modifiers: Modifiers::default(),
     }
 }
 
@@ -128,6 +129,7 @@ fn release(x: i32, y: i32) -> Event {
     Event::PointerUp {
         pos: Point::new(x, y),
         button: MouseButton::Left,
+        modifiers: Modifiers::default(),
     }
 }
 

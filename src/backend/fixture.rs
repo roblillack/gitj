@@ -508,6 +508,15 @@ impl RepoBackend for FixtureBackend {
         Ok(())
     }
 
+    fn apply_to_index(&self, _patch: &str) -> Result<(), String> {
+        // The simulation keeps only a whole-file `staged` flag and no file
+        // contents, so it can't model staging a subset of lines. Accept the
+        // patch as a no-op so commit-mode UI tests can exercise the Stage/
+        // Unstage button without a spurious error dialog; partial-staging
+        // correctness is covered against the live backend instead.
+        Ok(())
+    }
+
     fn commit(&self, message: &str, amend: bool) -> Result<(), String> {
         if message.trim().is_empty() {
             return Err("Please enter a commit message.".into());

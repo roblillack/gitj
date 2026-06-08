@@ -10,7 +10,7 @@ mod shared;
 mod shell;
 
 pub use commit_list::{CommitList, CommitRow};
-pub use diff_view::DiffView;
+pub use diff_view::{DiffMode, DiffView};
 pub use graph::{Graph, GraphRow, compute_graph};
 pub use heading::Heading;
 pub use search_bar::SearchBar;
