@@ -136,6 +136,24 @@ impl Diff {
     }
 }
 
+/// The raw byte contents of a file's two sides, for a binary / image diff where
+/// a text [`Diff`] is meaningless. `old` is the version before the change, `new`
+/// after — the same `a`/`b` orientation `git diff` uses. Either side is `None`
+/// when it doesn't exist: a freshly added file has no `old`, a deleted file no
+/// `new`. The graphical diff decodes these into images to compare.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BlobPair {
+    pub old: Option<Vec<u8>>,
+    pub new: Option<Vec<u8>>,
+}
+
+impl BlobPair {
+    /// Neither side exists — there is nothing to compare.
+    pub fn is_empty(&self) -> bool {
+        self.old.is_none() && self.new.is_none()
+    }
+}
+
 /// A snapshot of the working tree for commit mode (à la `git gui`).
 ///
 /// A file can appear in *both* lists when it is partially staged: its
@@ -219,6 +237,16 @@ pub trait RepoBackend {
     /// Unified diff for a single file within the commit.
     fn file_diff(&self, index: usize, path: &str) -> Diff;
 
+    /// Raw bytes of a file's two sides in the commit at `index` versus its
+    /// first parent — the binary/image analogue of [`file_diff`](Self::file_diff).
+    /// The graphical diff uses this to compare images instead of rendering a
+    /// useless "Binary files differ" text line. The default returns an empty
+    /// pair, so backends without blob access simply never offer an image diff.
+    fn commit_file_blobs(&self, index: usize, path: &str) -> BlobPair {
+        let _ = (index, path);
+        BlobPair::default()
+    }
+
     // ---- commit mode (working tree) -------------------------------------
 
     /// The current working-tree status: staged and unstaged changes.
@@ -234,6 +262,17 @@ pub trait RepoBackend {
     /// the index against the staged base — `HEAD` normally, `HEAD`'s parent
     /// when `amend` is set.
     fn working_diff(&self, path: &str, staged: bool, amend: bool) -> Diff;
+
+    /// Raw bytes of a working-tree file's two sides, mirroring
+    /// [`working_diff`](Self::working_diff): with `staged` false it is the index
+    /// copy (`old`) versus the working copy on disk (`new`); with `staged` true
+    /// it is the staged base — `HEAD`, or `HEAD`'s parent when `amend` is set —
+    /// (`old`) versus the index copy (`new`). The binary/image analogue of
+    /// `working_diff`; the default returns an empty pair.
+    fn working_file_blobs(&self, path: &str, staged: bool, amend: bool) -> BlobPair {
+        let _ = (path, staged, amend);
+        BlobPair::default()
+    }
 
     /// Stage a path (`git add <path>`), staging a deletion if the file is
     /// gone from the working tree. Returns a human-readable error on failure.

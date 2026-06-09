@@ -6,7 +6,7 @@ use std::path::Path;
 use git2::{Commit, Delta, DiffFormat, DiffLineType, DiffOptions, Oid, Repository, Sort};
 
 use super::{
-    ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, RefKind, RefLabel,
+    BlobPair, ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, RefKind, RefLabel,
     RepoBackend, WorkingStatus,
 };
 
@@ -68,6 +68,28 @@ impl Git2Backend {
         Some(diff)
     }
 
+    /// Read the bytes of `path`'s blob in `tree`, if it exists there and is a
+    /// blob (not a submodule or directory).
+    fn blob_in_tree(&self, tree: &git2::Tree, path: &str) -> Option<Vec<u8>> {
+        let entry = tree.get_path(Path::new(path)).ok()?;
+        let obj = entry.to_object(&self.repo).ok()?;
+        obj.as_blob().map(|b| b.content().to_vec())
+    }
+
+    /// The bytes of `path`'s entry in the current index (the staged copy).
+    fn blob_in_index(&self, path: &str) -> Option<Vec<u8>> {
+        let index = self.repo.index().ok()?;
+        let entry = index.get_path(Path::new(path), 0)?;
+        let blob = self.repo.find_blob(entry.id).ok()?;
+        Some(blob.content().to_vec())
+    }
+
+    /// The raw bytes of `path` in the working tree on disk.
+    fn blob_in_workdir(&self, path: &str) -> Option<Vec<u8>> {
+        let workdir = self.repo.workdir()?;
+        std::fs::read(workdir.join(path)).ok()
+    }
+
     /// The tree the staged side is diffed against: `HEAD`'s tree normally, or
     /// `HEAD`'s parent's tree when amending. `None` means "no base" (unborn
     /// `HEAD`, or amending the root commit) — the index is then diffed against
@@ -110,6 +132,44 @@ impl RepoBackend for Git2Backend {
         self.build_diff(index, Some(path))
             .map(render_diff)
             .unwrap_or_default()
+    }
+
+    fn commit_file_blobs(&self, index: usize, path: &str) -> BlobPair {
+        let Some(commit) = self.commit_at(index) else {
+            return BlobPair::default();
+        };
+        let new = commit
+            .tree()
+            .ok()
+            .and_then(|t| self.blob_in_tree(&t, path));
+        // The version in the first parent (the diff base); absent for an added
+        // file, or for a rename where the old content lives under a different
+        // path (a rare case for images, left as a one-sided comparison).
+        let old = commit
+            .parent(0)
+            .ok()
+            .and_then(|p| p.tree().ok())
+            .and_then(|t| self.blob_in_tree(&t, path));
+        BlobPair { old, new }
+    }
+
+    fn working_file_blobs(&self, path: &str, staged: bool, amend: bool) -> BlobPair {
+        if staged {
+            // Staged base (HEAD / HEAD^) vs the index copy.
+            let old = self
+                .staged_base_tree(amend)
+                .and_then(|t| self.blob_in_tree(&t, path));
+            BlobPair {
+                old,
+                new: self.blob_in_index(path),
+            }
+        } else {
+            // Index copy vs the working tree on disk.
+            BlobPair {
+                old: self.blob_in_index(path),
+                new: self.blob_in_workdir(path),
+            }
+        }
     }
 
     fn working_status(&self, amend: bool) -> WorkingStatus {

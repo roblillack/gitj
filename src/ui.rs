@@ -21,11 +21,12 @@ use saudade::{
 };
 
 use crate::backend::{
-    ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, PartialMode, RefKind,
-    RepoBackend, WorkingStatus, build_partial_patch,
+    BlobPair, ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, PartialMode,
+    RefKind, RepoBackend, WorkingStatus, build_partial_patch,
 };
+use crate::imagediff::{ImageComparison, is_image_path};
 use crate::widgets::{
-    CommitList, CommitRow, DiffMode, DiffView, Heading, SearchBar, Shared, Shell, compute_graph,
+    CommitList, CommitRow, DiffMode, DiffPane, Heading, SearchBar, Shared, Shell, compute_graph,
     layout,
 };
 
@@ -105,7 +106,7 @@ pub struct GitClient {
     search: Rc<RefCell<SearchBar>>,
     commit_list: Rc<RefCell<CommitList>>,
     file_list: Rc<RefCell<List>>,
-    diff_view: Rc<RefCell<DiffView>>,
+    diff_pane: Rc<RefCell<DiffPane>>,
 
     // ---- commit screen ----------------------------------------------------
     commit_root: Shell,
@@ -113,7 +114,7 @@ pub struct GitClient {
     staged_list: Rc<RefCell<List>>,
     unstaged_heading: Rc<RefCell<Heading>>,
     staged_heading: Rc<RefCell<Heading>>,
-    commit_diff_view: Rc<RefCell<DiffView>>,
+    commit_diff_pane: Rc<RefCell<DiffPane>>,
     message_editor: Rc<RefCell<TextEditor>>,
     amend_check: Rc<RefCell<Checkbox>>,
     stage_btn: Rc<RefCell<Button>>,
@@ -161,7 +162,7 @@ impl GitClient {
         let search = Rc::new(RefCell::new(SearchBar::new(Rect::new(0, 0, 0, 0))));
         let commit_list = Rc::new(RefCell::new(CommitList::new(Rect::new(0, 0, 0, 0))));
         let file_list = Rc::new(RefCell::new(List::new(Rect::new(0, 0, 0, 0))));
-        let diff_view = Rc::new(RefCell::new(DiffView::new(Rect::new(0, 0, 0, 0))));
+        let diff_pane = Rc::new(RefCell::new(DiffPane::new(Rect::new(0, 0, 0, 0))));
 
         // Add order sets the Tab focus order: search → commits → files → diff
         // (the menu bar isn't focusable; it works via accelerators). The file
@@ -177,7 +178,7 @@ impl GitClient {
             .add(Shared::new(search.clone()), layout::browse_toolbar)
             .add(Shared::new(commit_list.clone()), layout::browse_history)
             .add(Shared::new(file_list.clone()), layout::browse_files)
-            .add(Shared::new(diff_view.clone()), layout::browse_diff)
+            .add(Shared::new(diff_pane.clone()), layout::browse_diff)
             .add_overlay(Shared::new(dialog.clone()));
 
         // Commit-screen widgets.
@@ -185,7 +186,7 @@ impl GitClient {
         let staged_list = Rc::new(RefCell::new(List::new(Rect::new(0, 0, 0, 0))));
         let unstaged_heading = Rc::new(RefCell::new(Heading::new("Unstaged Changes")));
         let staged_heading = Rc::new(RefCell::new(Heading::new("Staged Changes")));
-        let commit_diff_view = Rc::new(RefCell::new(DiffView::new(Rect::new(0, 0, 0, 0))));
+        let commit_diff_pane = Rc::new(RefCell::new(DiffPane::new(Rect::new(0, 0, 0, 0))));
         let message_editor = Rc::new(RefCell::new(TextEditor::new(Rect::new(0, 0, 0, 0))));
         let amend_check = Rc::new(RefCell::new(Checkbox::new(
             Rect::new(0, 0, 0, 0),
@@ -235,7 +236,7 @@ impl GitClient {
             .add(Shared::new(unstage_btn.clone()), layout::commit_unstage_btn)
             .add(Shared::new(rescan_btn.clone()), layout::commit_rescan_btn)
             .add(Heading::new("Diff"), layout::commit_diff_label)
-            .add(Shared::new(commit_diff_view.clone()), layout::commit_diff)
+            .add(Shared::new(commit_diff_pane.clone()), layout::commit_diff)
             .add(Heading::new("Commit Message"), layout::commit_msg_label)
             .add(Shared::new(message_editor.clone()), layout::commit_editor)
             .add(Shared::new(amend_check.clone()), layout::commit_amend)
@@ -253,13 +254,13 @@ impl GitClient {
             search,
             commit_list,
             file_list,
-            diff_view,
+            diff_pane,
             commit_root,
             unstaged_list,
             staged_list,
             unstaged_heading,
             staged_heading,
-            commit_diff_view,
+            commit_diff_pane,
             message_editor,
             amend_check,
             stage_btn,
@@ -435,8 +436,7 @@ impl GitClient {
             let items: Vec<ListItem> = self.current_files.iter().map(file_row).collect();
             self.file_list.borrow_mut().set_items(items);
             self.shown_file = None;
-            let diff = self.selection_diff(sel, None);
-            self.diff_view.borrow_mut().set_diff(diff);
+            self.show_browse_diff(sel, None);
             changed = true;
         }
 
@@ -444,12 +444,40 @@ impl GitClient {
         let file_sel = self.file_list.borrow().selected_index();
         if file_sel != self.shown_file {
             self.shown_file = file_sel;
-            let diff = self.selection_diff(self.shown, file_sel);
-            self.diff_view.borrow_mut().set_diff(diff);
+            self.show_browse_diff(self.shown, file_sel);
             changed = true;
         }
 
         changed
+    }
+
+    /// Update the browse diff pane for a log selection: a graphical image
+    /// comparison when a single image file is selected, otherwise the text diff
+    /// (whole-commit overview when no single file is picked).
+    fn show_browse_diff(&self, sel: Option<RowRef>, file_sel: Option<usize>) {
+        if let Some(file) = file_sel.and_then(|f| self.current_files.get(f))
+            && is_image_path(&file.path)
+            && let Some(cmp) = self.browse_image(sel, &file.path)
+        {
+            self.diff_pane.borrow_mut().show_image(cmp);
+            return;
+        }
+        let diff = self.selection_diff(sel, file_sel);
+        self.diff_pane.borrow_mut().set_diff(diff);
+    }
+
+    /// Build the image comparison for `path` under the current log selection,
+    /// pulling the two blobs from the commit or the working tree. `None` when
+    /// neither side decodes (the caller then shows the text diff).
+    fn browse_image(&self, sel: Option<RowRef>, path: &str) -> Option<ImageComparison> {
+        let blobs: BlobPair = match sel? {
+            RowRef::Commit(cidx) => self.backend.commit_file_blobs(cidx, path),
+            RowRef::Wip(side) => {
+                self.backend
+                    .working_file_blobs(path, matches!(side, Side::Staged), false)
+            }
+        };
+        ImageComparison::from_blobs(&blobs)
     }
 
     /// The diff to show for a log selection: a whole-commit / whole-working-set
@@ -629,7 +657,7 @@ impl GitClient {
         self.prev_unstaged_sel = None;
         self.prev_staged_sel = None;
         {
-            let mut view = self.commit_diff_view.borrow_mut();
+            let mut view = self.commit_diff_pane.borrow_mut();
             view.set_mode(DiffMode::Plain);
             view.set_diff(Diff::default());
         }
@@ -675,18 +703,28 @@ impl GitClient {
             Side::Unstaged => &self.working.unstaged,
             Side::Staged => &self.working.staged,
         };
-        let diff = files
-            .get(i)
-            .map(|f| self.backend.working_diff(&f.path, staged, amend))
-            .unwrap_or_default();
         // Unstaged files offer per-line staging; staged files, per-line
         // unstaging. (Only the commit screen's diff view is ever non-Plain.)
         let mode = match side {
             Side::Unstaged => DiffMode::Stage,
             Side::Staged => DiffMode::Unstage,
         };
-        let mut view = self.commit_diff_view.borrow_mut();
+        let mut view = self.commit_diff_pane.borrow_mut();
         view.set_mode(mode);
+        // An image file shows the graphical comparison; line-range staging
+        // doesn't apply to it (the image view has no selectable lines).
+        if let Some(file) = files.get(i)
+            && is_image_path(&file.path)
+            && let Some(cmp) =
+                ImageComparison::from_blobs(&self.backend.working_file_blobs(&file.path, staged, amend))
+        {
+            view.show_image(cmp);
+            return;
+        }
+        let diff = files
+            .get(i)
+            .map(|f| self.backend.working_diff(&f.path, staged, amend))
+            .unwrap_or_default();
         view.set_diff(diff);
     }
 
@@ -695,7 +733,7 @@ impl GitClient {
     /// the amend toggle.
     fn sync_commit(&mut self) -> bool {
         // The Stage/Unstage button floating over a highlighted diff range.
-        let action = self.commit_diff_view.borrow_mut().take_action();
+        let action = self.commit_diff_pane.borrow_mut().take_action();
         if let Some((lo, hi)) = action {
             return self.apply_partial(lo, hi);
         }
