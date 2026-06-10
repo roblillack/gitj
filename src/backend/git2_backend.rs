@@ -10,6 +10,20 @@ use super::{
     RepoBackend, WorkingStatus,
 };
 
+/// Above this many changed files, skip rename/copy detection. `find_similar` is
+/// roughly O(adds × deletes), so on a huge diff (e.g. a big merge touching
+/// thousands of files) it takes the better part of a minute and freezes the UI.
+/// Git's own CLI does the same via `diff.renameLimit` (default ~1000). The cost
+/// of skipping is that renames in such a diff show as separate add/delete pairs.
+const MAX_RENAME_FILES: usize = 1000;
+
+/// Cap on the number of lines [`render_diff`] emits for one diff. A pathological
+/// commit (again, a big merge) can produce well over a million patch lines;
+/// materializing them all freezes the UI for tens of seconds and wastes memory
+/// on a diff no one scrolls through. Past the cap the diff is truncated with a
+/// trailing marker; the per-file lists still show every changed file.
+const MAX_DIFF_LINES: usize = 50_000;
+
 /// Opens a repository and reads commits/diffs through libgit2.
 pub struct Git2Backend {
     path: String,
@@ -63,8 +77,12 @@ impl Git2Backend {
             .repo
             .diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), Some(&mut opts))
             .ok()?;
-        // Detect renames/copies so statuses and headers are accurate.
-        let _ = diff.find_similar(None);
+        // Detect renames/copies so statuses and headers are accurate — but only
+        // for diffs small enough that the O(adds × deletes) matching stays cheap
+        // (see [`MAX_RENAME_FILES`]); a huge merge would otherwise hang the UI.
+        if diff.deltas().len() <= MAX_RENAME_FILES {
+            let _ = diff.find_similar(None);
+        }
         Some(diff)
     }
 
@@ -426,7 +444,14 @@ fn status_from_delta(delta: Delta) -> ChangeStatus {
 /// a real unified diff even before color is applied.
 fn render_diff(diff: git2::Diff) -> Diff {
     let mut lines = Vec::new();
+    let mut truncated = false;
     let _ = diff.print(DiffFormat::Patch, |_delta, _hunk, line| {
+        // Stop once the cap is hit: returning `false` aborts libgit2's patch
+        // generation, so the remaining (huge) diff is never materialized.
+        if lines.len() >= MAX_DIFF_LINES {
+            truncated = true;
+            return false;
+        }
         let content = String::from_utf8_lossy(line.content());
         let content = content.trim_end_matches('\n');
         match line.origin_value() {
@@ -452,6 +477,12 @@ fn render_diff(diff: git2::Diff) -> Diff {
         }
         true
     });
+    if truncated {
+        lines.push(DiffLine::new(
+            DiffLineKind::Meta,
+            format!("\u{2026} diff truncated at {MAX_DIFF_LINES} lines — too large to display in full"),
+        ));
+    }
     Diff { lines }
 }
 

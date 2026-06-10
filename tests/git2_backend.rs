@@ -129,3 +129,57 @@ fn reads_history_refs_and_diffs() {
 
     fs::remove_dir_all(&dir).ok();
 }
+
+/// A commit with a diff far larger than the render cap is **truncated** rather
+/// than materialized in full — the regression guard for the merge-commit hang,
+/// where a 1.2M-line diff froze the UI for tens of seconds when selected.
+#[test]
+fn huge_diff_is_truncated() {
+    let dir = scratch_dir("git2-huge");
+    let repo = Repository::init(&dir).unwrap();
+    let sig =
+        Signature::new("Tester", "tester@example.com", &Time::new(1_700_000_000, 0)).unwrap();
+
+    // A file with many more lines than the cap, committed from empty so the diff
+    // is one huge block of additions.
+    let big: String = (0..60_000).map(|n| format!("line {n}\n")).collect();
+    fs::write(dir.join("big.txt"), &big).unwrap();
+    commit_file(&repo, "big.txt", &sig, "add a huge file\n", &[]);
+
+    let backend = Git2Backend::open(dir.to_str().unwrap()).expect("open repo");
+    let diff = backend.commit_diff(0);
+
+    // Bounded (the cap is 50_000 lines + a trailing marker), not ~60_000.
+    assert!(
+        diff.lines.len() <= 50_001,
+        "diff should be truncated, got {} lines",
+        diff.lines.len()
+    );
+    assert!(diff.lines.len() > 1000, "but a real chunk is still shown");
+    assert!(
+        diff.lines.iter().any(|l| l.text.contains("truncated")),
+        "a truncation marker should be appended"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+/// An ordinary small diff is shown in full, with no truncation marker.
+#[test]
+fn small_diff_is_not_truncated() {
+    let dir = scratch_dir("git2-small");
+    let repo = Repository::init(&dir).unwrap();
+    let sig =
+        Signature::new("Tester", "tester@example.com", &Time::new(1_700_000_000, 0)).unwrap();
+    fs::write(dir.join("a.txt"), "one\ntwo\nthree\n").unwrap();
+    commit_file(&repo, "a.txt", &sig, "add a.txt\n", &[]);
+
+    let backend = Git2Backend::open(dir.to_str().unwrap()).expect("open repo");
+    let diff = backend.commit_diff(0);
+    assert!(
+        !diff.lines.iter().any(|l| l.text.contains("truncated")),
+        "a small diff must not be truncated"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
