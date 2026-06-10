@@ -12,7 +12,8 @@ use journey::backend::{
 use journey::ui::GitClient;
 use journey::widgets::{CommitList, CommitRow, DiffView, compute_graph};
 use saudade::{
-    Color, Container, Event, Key, Modifiers, MouseButton, NamedKey, Point, Rect, Widget,
+    Color, Container, Event, Key, ModifierScheme, Modifiers, MouseButton, NamedKey, Point, Rect,
+    Widget,
 };
 
 const W: i32 = 760;
@@ -23,8 +24,10 @@ const H: i32 = 520;
 const CW: i32 = 820;
 const CH: i32 = 560;
 
+// Snapshots pin the PC modifier scheme so the Ctrl chords below match and the
+// open menus render PC-style accel labels regardless of the host platform.
 fn sample_client() -> GitClient {
-    GitClient::new(Rc::new(FixtureBackend::sample()))
+    GitClient::with_menu_scheme(Rc::new(FixtureBackend::sample()), ModifierScheme::Pc)
 }
 
 fn key(k: NamedKey) -> Event {
@@ -256,7 +259,7 @@ fn image_client() -> GitClient {
         Some(demo_png(16, 16)),
         Some(demo_png(64, 40)),
     );
-    GitClient::new(Rc::new(be))
+    GitClient::with_menu_scheme(Rc::new(be), ModifierScheme::Pc)
 }
 
 /// Selecting an image file in commit mode replaces the text diff with a

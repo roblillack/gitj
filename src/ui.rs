@@ -18,8 +18,8 @@ use std::collections::BTreeSet;
 use std::rc::Rc;
 
 use saudade::{
-    Button, Checkbox, Dialog, Event, EventCtx, List, ListItem, Menu, MenuBar, MenuItem, Painter,
-    PopupRequest, Rect, SvgImage, TextEditor, Theme, Widget, include_svg,
+    Button, Checkbox, Dialog, Event, EventCtx, List, ListItem, Menu, MenuBar, MenuItem,
+    ModifierScheme, Painter, PopupRequest, Rect, SvgImage, TextEditor, Theme, Widget, include_svg,
 };
 
 use crate::backend::{
@@ -203,6 +203,14 @@ pub struct GitClient {
 
 impl GitClient {
     pub fn new(backend: Rc<dyn RepoBackend>) -> Self {
+        Self::with_menu_scheme(backend, ModifierScheme::native())
+    }
+
+    /// Like [`GitClient::new`], but pins the accelerator modifier scheme
+    /// instead of using the build platform's. Tests pin [`ModifierScheme::Pc`]
+    /// so chords match and menus render their accel labels identically on
+    /// every host.
+    pub fn with_menu_scheme(backend: Rc<dyn RepoBackend>, scheme: ModifierScheme) -> Self {
         let dialog = Rc::new(RefCell::new(Dialog::new()));
         let commands: Rc<RefCell<Vec<AppCommand>>> = Rc::new(RefCell::new(Vec::new()));
         let nav_state: Rc<RefCell<MenuNav>> = Rc::new(RefCell::new(MenuNav::default()));
@@ -221,7 +229,7 @@ impl GitClient {
         let browse_root = Shell::new()
             .no_background()
             .add(
-                build_browse_menu(commands.clone(), dialog.clone(), nav_state.clone()),
+                build_browse_menu(commands.clone(), dialog.clone(), nav_state.clone(), scheme),
                 layout::browse_menu,
             )
             .add(Shared::new(search.clone()), layout::browse_toolbar)
@@ -240,7 +248,7 @@ impl GitClient {
         let review_root = Shell::new()
             .no_background()
             .add(
-                build_browse_menu(commands.clone(), dialog.clone(), nav_state.clone()),
+                build_browse_menu(commands.clone(), dialog.clone(), nav_state.clone(), scheme),
                 layout::review_menu,
             )
             .add(Shared::new(branch_list.clone()), layout::review_branches)
@@ -283,7 +291,7 @@ impl GitClient {
         let commit_root = Shell::new()
             .no_background()
             .add(
-                build_commit_menu(commands.clone(), dialog.clone(), nav_state.clone()),
+                build_commit_menu(commands.clone(), dialog.clone(), nav_state.clone(), scheme),
                 layout::commit_menu,
             )
             .add(
@@ -1462,11 +1470,13 @@ fn build_browse_menu(
     commands: Rc<RefCell<Vec<AppCommand>>>,
     dialog: Rc<RefCell<Dialog>>,
     nav: Rc<RefCell<MenuNav>>,
+    scheme: ModifierScheme,
 ) -> MenuBar {
     let mut view = mode_items(&commands, &nav);
     view.push(MenuItem::separator());
     view.extend(image_view_items(&commands, &nav));
     MenuBar::new(Rect::new(0, 0, 0, 0))
+        .with_scheme(scheme)
         .add_menu(Menu::new(
             "&File",
             vec![
@@ -1485,11 +1495,13 @@ fn build_commit_menu(
     commands: Rc<RefCell<Vec<AppCommand>>>,
     dialog: Rc<RefCell<Dialog>>,
     nav: Rc<RefCell<MenuNav>>,
+    scheme: ModifierScheme,
 ) -> MenuBar {
     let mut view = mode_items(&commands, &nav);
     view.push(MenuItem::separator());
     view.extend(image_view_items(&commands, &nav));
     MenuBar::new(Rect::new(0, 0, 0, 0))
+        .with_scheme(scheme)
         .add_menu(Menu::new(
             "&File",
             vec![
