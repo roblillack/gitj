@@ -66,7 +66,7 @@ fn commit_client() -> (Rc<FixtureBackend>, MockBackend, Box<dyn Widget>) {
     client.enter_commit_mode();
     let backend = MockBackend::new(CW, CH)
         .with_scale(1.0)
-        .with_font(common::sans_font())
+        .with_sans_font(common::sans_font())
         .with_mono_font(common::mono_font());
     let mut widget: Box<dyn Widget> = Box::new(client);
     // Warm-up render lays the tree out (and primes geometry caches), matching
@@ -248,7 +248,7 @@ fn ctrl_1_and_2_switch_between_browse_and_commit() {
     let client = GitClient::new(be.clone());
     let backend = MockBackend::new(CW, CH)
         .with_scale(1.0)
-        .with_font(common::sans_font())
+        .with_sans_font(common::sans_font())
         .with_mono_font(common::mono_font());
     let mut w: Box<dyn Widget> = Box::new(client);
     let _ = backend.render(w.as_mut());

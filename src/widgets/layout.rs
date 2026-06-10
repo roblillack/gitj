@@ -97,6 +97,62 @@ fn clamp_files_w(b: Rect) -> i32 {
     }
 }
 
+// ---- review (branch review) layout ------------------------------------------
+//
+// The same shape as the browse screen minus the search toolbar: the branch
+// list takes the upper band, the aggregated file list and the diff share the
+// lower one.
+
+pub fn review_menu(b: Rect) -> Rect {
+    browse_menu(b)
+}
+
+/// Top of the padded review content area, directly below the menu.
+fn review_content_y(b: Rect) -> i32 {
+    b.y + MENU_H + BROWSE_PAD
+}
+
+/// Height available to the review panes, after top and bottom padding.
+fn review_content_h(b: Rect) -> i32 {
+    (b.h - MENU_H - 2 * BROWSE_PAD).max(0)
+}
+
+/// Height of the branch list: the same fraction of the content area the
+/// browse history pane gets.
+fn review_branches_h(b: Rect) -> i32 {
+    let avail = (review_content_h(b) - BROWSE_PAD).max(0);
+    (avail as f32 * HISTORY_FRAC).round() as i32
+}
+
+pub fn review_branches(b: Rect) -> Rect {
+    Rect::new(
+        b.x + BROWSE_PAD,
+        review_content_y(b),
+        (b.w - 2 * BROWSE_PAD).max(0),
+        review_branches_h(b),
+    )
+}
+
+/// The (top, height) of the lower band holding the file and diff panes.
+fn review_lower_band(b: Rect) -> (i32, i32) {
+    let lower_y = review_content_y(b) + review_branches_h(b) + BROWSE_PAD;
+    let lower_h = (review_content_h(b) - review_branches_h(b) - BROWSE_PAD).max(0);
+    (lower_y, lower_h)
+}
+
+pub fn review_files(b: Rect) -> Rect {
+    let (lower_y, lower_h) = review_lower_band(b);
+    Rect::new(b.x + BROWSE_PAD, lower_y, clamp_files_w(b), lower_h)
+}
+
+pub fn review_diff(b: Rect) -> Rect {
+    let (lower_y, lower_h) = review_lower_band(b);
+    let files_w = clamp_files_w(b);
+    let diff_x = b.x + 2 * BROWSE_PAD + files_w;
+    let diff_w = (b.w - files_w - 3 * BROWSE_PAD).max(0);
+    Rect::new(diff_x, lower_y, diff_w, lower_h)
+}
+
 // ---- commit (git-gui) layout ----------------------------------------------
 //
 // Both columns share one vertical grid: a top section (heading over a pane) and
