@@ -34,10 +34,23 @@ fn key(k: NamedKey) -> Event {
     }
 }
 
-fn char_key(ch: char) -> Event {
+fn ctrl_char(ch: char) -> Event {
     Event::KeyDown {
         key: Key::Char(ch),
-        modifiers: Modifiers::default(),
+        modifiers: Modifiers {
+            control: true,
+            ..Modifiers::default()
+        },
+    }
+}
+
+fn alt_char(ch: char) -> Event {
+    Event::KeyDown {
+        key: Key::Char(ch),
+        modifiers: Modifiers {
+            alt: true,
+            ..Modifiers::default()
+        },
     }
 }
 
@@ -259,10 +272,11 @@ fn commit_mode_image_diff() {
     });
 }
 
-/// The same image diff switched to the per-pixel "difference" heatmap by
-/// clicking its mode button — black where the images match, hot colors where
-/// they differ. The diff pane sits at `Rect(323,40,491,231)`; its button row is
-/// along the bottom, and "Diff" is the fourth button from the left.
+/// The same image diff switched to the per-pixel "difference" heatmap via the
+/// Switch Mode accelerator — black where the images match, hot colors where they
+/// differ. Ctrl+M cycles 2-Up → Swipe → Onion → Difference, so three presses
+/// land on Difference. Accelerator-driven so the test never depends on
+/// font-dependent button widths.
 #[test]
 fn commit_mode_image_diff_difference() {
     snapshot_with_events(
@@ -274,11 +288,35 @@ fn commit_mode_image_diff_difference() {
             client.enter_commit_mode();
             Box::new(client)
         },
-        // Click the image pane to focus it (a click off the buttons just takes
-        // focus), then press `m` three times: 2-Up → Swipe → Onion →
-        // Difference. Keyboard-driven so the test never depends on
-        // font-dependent button widths.
-        || vec![click(568, 120), char_key('m'), char_key('m'), char_key('m')],
+        // Click the image pane first (moves focus off the file list, matching
+        // the original baseline), then Ctrl+M ×3 to land on Difference.
+        || {
+            vec![
+                click(568, 120),
+                ctrl_char('m'),
+                ctrl_char('m'),
+                ctrl_char('m'),
+            ]
+        },
+    );
+}
+
+/// The View menu on the commit screen with the modified image selected: Switch
+/// Mode / Before Image / After Image are enabled (an image diff is on screen),
+/// while Next / Previous Image are greyed — the working tree holds just the one
+/// image, so there's nowhere to navigate. Exercises the disabled-menu-item path.
+#[test]
+fn commit_mode_view_menu() {
+    snapshot_with_events(
+        "commit_mode_view_menu",
+        CW,
+        CH,
+        || {
+            let mut client = image_client();
+            client.enter_commit_mode();
+            Box::new(client)
+        },
+        || vec![alt_char('v')], // open the View menu
     );
 }
 

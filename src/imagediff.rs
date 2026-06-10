@@ -88,8 +88,8 @@ impl CompareMode {
         }
     }
 
-    /// Cycle to the next comparison mode (the `m` key in `imgap`). The
-    /// single-image views are skipped — they're reached via [`Self::toggle_single`].
+    /// Cycle to the next comparison mode (the View ▸ Switch Mode action). The
+    /// single-image views are skipped — they cycle back to 2-Up.
     pub fn next(self) -> Self {
         match self {
             CompareMode::TwoUp => CompareMode::Swipe,

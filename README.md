@@ -57,8 +57,11 @@ cargo install gitj
   BMP, TIFF, …) shows the two versions visually instead of a "binary files
   differ" line. Compare them side by side (**2-up**), with a **swipe** split, an
   **onion-skin** cross-fade, or a per-pixel **difference** heatmap — switched
-  from the button row (or the `m` key) with a slider driving the swipe / onion
-  position. Works in both the browse and commit diff panes.
+  from the button row or the **View** menu (**Switch Mode**, Ctrl+M), with a
+  slider driving the swipe / onion position. **Before** / **After Image**
+  (Ctrl+Left / Ctrl+Right) show just the old / new side full size, and **Next** /
+  **Previous Image** (Ctrl+N / Ctrl+P) step between the image files in the active
+  list. Works in both the browse and commit diff panes.
 * **Working-tree entries**: when there are local changes, the log leads with
   "Uncommitted changes" / "Staged changes" rows (connected into the graph at
   `HEAD`). Selecting one previews its files and diff; **double-clicking** it

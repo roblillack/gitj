@@ -50,6 +50,27 @@ impl DiffPane {
         self.set_showing_image(true);
     }
 
+    /// Whether the graphical image view is currently shown (vs. the text diff).
+    pub fn showing_image(&self) -> bool {
+        self.showing_image
+    }
+
+    /// Cycle the image comparison mode (View ▸ Switch Mode). No-op unless an
+    /// image is currently shown.
+    pub fn cycle_image_mode(&mut self) {
+        if self.showing_image {
+            self.image.cycle_mode();
+        }
+    }
+
+    /// Show the "before" (old) or "after" (new) side of the image at full size
+    /// (View ▸ Before / After Image). No-op unless an image is currently shown.
+    pub fn show_image_side(&mut self, before: bool) {
+        if self.showing_image {
+            self.image.show_side(before);
+        }
+    }
+
     /// Set the text view's staging mode (no-op while an image is shown — the
     /// image view has no line-range selection).
     pub fn set_mode(&mut self, mode: DiffMode) {
@@ -72,12 +93,6 @@ impl DiffPane {
         } else {
             self.text.is_empty()
         }
-    }
-
-    /// Whether the graphical image view is currently shown (exposed for tests).
-    #[cfg(test)]
-    pub fn showing_image(&self) -> bool {
-        self.showing_image
     }
 
     /// Switch the active view, moving keyboard focus to the newly-shown one so

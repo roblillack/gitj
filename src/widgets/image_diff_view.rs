@@ -12,9 +12,7 @@
 //! widgets, hand-drawing its buttons and slider and tracking their hit-rects,
 //! so the cross-pane wiring in [`crate::ui`] stays simple.
 
-use saudade::{
-    Color, Event, EventCtx, Key, MouseButton, NamedKey, Painter, Point, Rect, Theme, Widget,
-};
+use saudade::{Color, Event, EventCtx, MouseButton, Painter, Point, Rect, Theme, Widget};
 
 use crate::imagediff::{CompareMode, ImageComparison};
 
@@ -44,7 +42,6 @@ pub struct ImageDiffView {
     last_compare_mode: CompareMode,
     /// Swipe / onion-skin position, 0..1.
     slider: f32,
-    focused: bool,
     font_size: f32,
     /// Mode-button hit-rects from the last paint, for event hit-testing.
     button_rects: Vec<(CompareMode, Rect)>,
@@ -61,7 +58,6 @@ impl ImageDiffView {
             mode: CompareMode::TwoUp,
             last_compare_mode: CompareMode::TwoUp,
             slider: 0.5,
-            focused: false,
             font_size: 12.0,
             button_rects: Vec::new(),
             dragging_slider: false,
@@ -175,6 +171,22 @@ impl ImageDiffView {
         if !mode.is_single() {
             self.last_compare_mode = mode;
         }
+    }
+
+    /// Cycle to the next comparison mode — the View ▸ Switch Mode action
+    /// (Ctrl+M). The single-image views cycle back to 2-Up.
+    pub fn cycle_mode(&mut self) {
+        self.select_mode(self.mode.next());
+    }
+
+    /// Show just the "before" (old) or "after" (new) image at full size — the
+    /// View ▸ Before / After Image actions (Ctrl+Left / Ctrl+Right).
+    pub fn show_side(&mut self, before: bool) {
+        self.select_mode(if before {
+            CompareMode::Left
+        } else {
+            CompareMode::Right
+        });
     }
 
     /// Handle a press at `pos`; returns whether it was consumed.
@@ -338,44 +350,10 @@ impl Widget for ImageDiffView {
                 self.dragging_image = false;
                 ctx.request_paint();
             }
-            Event::KeyDown { key, modifiers } if self.focused && !modifiers.has_command() => {
-                let step = if modifiers.shift { 0.2 } else { 0.05 };
-                let consumed = match key {
-                    Key::Char('m') | Key::Char('M') => {
-                        self.select_mode(self.mode.next());
-                        true
-                    }
-                    // Toggle the single-image view, or swap sides while in one.
-                    Key::Char('s') | Key::Char('S') => {
-                        self.mode = match self.mode {
-                            CompareMode::Left => CompareMode::Right,
-                            CompareMode::Right => CompareMode::Left,
-                            _ => CompareMode::Left,
-                        };
-                        true
-                    }
-                    Key::Named(NamedKey::Left) if self.mode.uses_slider() => {
-                        self.slider = (self.slider - step).max(0.0);
-                        true
-                    }
-                    Key::Named(NamedKey::Right) if self.mode.uses_slider() => {
-                        self.slider = (self.slider + step).min(1.0);
-                        true
-                    }
-                    Key::Named(NamedKey::Home) if self.mode.uses_slider() => {
-                        self.slider = 0.0;
-                        true
-                    }
-                    Key::Named(NamedKey::End) if self.mode.uses_slider() => {
-                        self.slider = 1.0;
-                        true
-                    }
-                    _ => false,
-                };
-                if consumed {
-                    ctx.request_paint();
-                }
-            }
+            // Keyboard control is driven from the View menu's accelerators
+            // (Ctrl+M / Ctrl+Left / Ctrl+Right) via [`Self::cycle_mode`] /
+            // [`Self::show_side`], handled application-side in [`crate::ui`], not
+            // here — so the bare m/s/arrow keys are intentionally not bound.
             _ => {}
         }
     }
@@ -388,8 +366,9 @@ impl Widget for ImageDiffView {
         true
     }
 
-    fn set_focused(&mut self, focused: bool) {
-        self.focused = focused;
+    fn set_focused(&mut self, _focused: bool) {
+        // No focus-dependent state: keyboard control comes from the View menu's
+        // accelerators (see [`crate::ui`]), not from this widget owning focus.
     }
 
     fn layout(&mut self, bounds: Rect) {
@@ -434,13 +413,6 @@ mod tests {
         (be, v)
     }
 
-    fn key(k: Key) -> Event {
-        Event::KeyDown {
-            key: k,
-            modifiers: Modifiers::default(),
-        }
-    }
-
     #[test]
     fn clicking_a_mode_button_selects_it() {
         let (be, mut v) = view();
@@ -464,21 +436,27 @@ mod tests {
     }
 
     #[test]
-    fn m_cycles_modes_and_s_toggles_single() {
-        let (be, mut v) = view();
+    fn cycle_mode_and_show_side() {
+        let (_be, mut v) = view();
         assert_eq!(v.mode(), CompareMode::TwoUp);
-        be.dispatch(&mut v, &key(Key::Char('m')));
+        v.cycle_mode();
         assert_eq!(v.mode(), CompareMode::Swipe);
-        be.dispatch(&mut v, &key(Key::Char('s')));
+        v.cycle_mode();
+        assert_eq!(v.mode(), CompareMode::Onion);
+        // Before / after jump straight to the single-image views…
+        v.show_side(true);
         assert_eq!(v.mode(), CompareMode::Left);
-        be.dispatch(&mut v, &key(Key::Char('s')));
+        v.show_side(false);
         assert_eq!(v.mode(), CompareMode::Right);
+        // …and cycling out of a single view returns to the comparison set.
+        v.cycle_mode();
+        assert_eq!(v.mode(), CompareMode::TwoUp);
     }
 
     #[test]
     fn dragging_the_slider_moves_it() {
         let (be, mut v) = view();
-        be.dispatch(&mut v, &key(Key::Char('m'))); // -> Swipe, which uses the slider
+        v.cycle_mode(); // -> Swipe, which uses the slider
         assert_eq!(v.mode(), CompareMode::Swipe);
 
         let hit = v.slider_hit();
@@ -513,20 +491,5 @@ mod tests {
             },
         );
         assert!(!v.captures_pointer());
-    }
-
-    #[test]
-    fn arrows_move_the_slider_only_in_slider_modes() {
-        let (be, mut v) = view();
-        // 2-up doesn't use the slider: arrows are ignored.
-        be.dispatch(&mut v, &key(Key::Named(NamedKey::Right)));
-        assert_eq!(v.slider(), 0.5);
-        // Switch to swipe, then the arrows move it.
-        be.dispatch(&mut v, &key(Key::Char('m')));
-        assert_eq!(v.mode(), CompareMode::Swipe);
-        be.dispatch(&mut v, &key(Key::Named(NamedKey::Right)));
-        assert!(v.slider() > 0.5);
-        be.dispatch(&mut v, &key(Key::Named(NamedKey::Home)));
-        assert_eq!(v.slider(), 0.0);
     }
 }
