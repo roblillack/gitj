@@ -45,8 +45,9 @@ const WIP_STAGED_ID: &str = "\u{1}journey-wip-staged";
 type ReopenFn = Box<dyn Fn() -> Option<Rc<dyn RepoBackend>>>;
 
 /// Which screen is shown.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
 enum Mode {
+    #[default]
     Browse,
     Commit,
 }
@@ -70,7 +71,7 @@ enum RowRef {
 
 /// Deferred actions menus / buttons request; drained by `GitClient` after
 /// event dispatch so they can mutate state the callbacks can't reach.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum AppCommand {
     Reload,
     EnterCommitMode,
@@ -98,13 +99,15 @@ enum AppCommand {
     ShowImageAfter,
 }
 
-/// Live state the View-menu image actions gate on, refreshed after every event
-/// (see [`GitClient::update_menu_nav`]) so the menu greys what doesn't apply:
-/// whether the active diff pane shows an image (Switch Mode / Before / After)
-/// and whether the active file list holds another image to jump to (Next /
-/// Previous).
+/// Live state the View menu reads, refreshed after every event (see
+/// [`GitClient::update_menu_nav`]) so the menu reflects the current screen: it
+/// greys the image actions that don't apply — whether the active diff pane
+/// shows an image (Switch Mode / Before / After) and whether the active file
+/// list holds another image to jump to (Next / Previous) — and checkmarks the
+/// active mode against the Browse History / Commit Changes entries.
 #[derive(Default)]
 struct MenuNav {
+    mode: Mode,
     showing_image: bool,
     can_nav_images: bool,
 }
@@ -1168,12 +1171,14 @@ impl GitClient {
         true
     }
 
-    /// Refresh the View-menu image actions' enable state from the active screen,
-    /// so the menu greys what doesn't currently apply.
+    /// Refresh the View-menu state from the active screen: the image actions'
+    /// enable state (so the menu greys what doesn't currently apply) and the
+    /// active mode (so the Browse / Commit entries show the checkmark).
     fn update_menu_nav(&self) {
         let showing_image = self.active_showing_image();
         let can_nav_images = self.has_other_image();
         let mut nav = self.nav_state.borrow_mut();
+        nav.mode = self.mode;
         nav.showing_image = showing_image;
         nav.can_nav_images = can_nav_images;
     }
@@ -1203,6 +1208,17 @@ impl GitClient {
         // Ctrl+Q quits from either screen (git gui binds quit globally).
         if letter == Some('q') {
             ctx.close();
+            return true;
+        }
+
+        // Ctrl+B / Ctrl+C switch screens (Browse / Commit), like the View menu.
+        // The decision lives in `mode_switch_command`: it yields a switch only
+        // when the key would actually change screens. When it's already the
+        // active screen the chord falls through (matching nothing else below) to
+        // the focused widget — in particular Ctrl+C stays as copy in the commit
+        // message editor.
+        if let Some(command) = mode_switch_command(letter, self.mode) {
+            self.commands.borrow_mut().push(command);
             return true;
         }
 
@@ -1326,17 +1342,15 @@ impl Widget for GitClient {
     }
 }
 
-/// Build the browse-screen menu bar: File ▸ Reload / Exit, View ▸ Commit
-/// Changes (switch screens) + the image-diff actions, Help ▸ About.
+/// Build the browse-screen menu bar: File ▸ Reload / Exit, View ▸ the
+/// Browse / Commit mode switches + the image-diff actions, Help ▸ About.
 fn build_browse_menu(
     commands: Rc<RefCell<Vec<AppCommand>>>,
     dialog: Rc<RefCell<Dialog>>,
     nav: Rc<RefCell<MenuNav>>,
 ) -> MenuBar {
-    let mut view = vec![
-        cmd_item("&Commit Changes", &commands, AppCommand::EnterCommitMode),
-        MenuItem::separator(),
-    ];
+    let mut view = mode_items(&commands, &nav);
+    view.push(MenuItem::separator());
     view.extend(image_view_items(&commands, &nav));
     MenuBar::new(Rect::new(0, 0, 0, 0))
         .add_menu(Menu::new(
@@ -1352,16 +1366,14 @@ fn build_browse_menu(
 }
 
 /// Build the commit-screen menu bar: File, Commit (the staging actions), View
-/// ▸ Browse History + the image-diff actions, Help.
+/// ▸ the Browse / Commit mode switches + the image-diff actions, Help.
 fn build_commit_menu(
     commands: Rc<RefCell<Vec<AppCommand>>>,
     dialog: Rc<RefCell<Dialog>>,
     nav: Rc<RefCell<MenuNav>>,
 ) -> MenuBar {
-    let mut view = vec![
-        cmd_item("&Browse History", &commands, AppCommand::EnterBrowseMode),
-        MenuItem::separator(),
-    ];
+    let mut view = mode_items(&commands, &nav);
+    view.push(MenuItem::separator());
     view.extend(image_view_items(&commands, &nav));
     MenuBar::new(Rect::new(0, 0, 0, 0))
         .add_menu(Menu::new(
@@ -1390,6 +1402,25 @@ fn build_commit_menu(
         ))
         .add_menu(Menu::new("&View", view))
         .add_menu(Menu::new("&Help", vec![about_item(&dialog)]))
+}
+
+/// The View-menu mode switches, shared by both screens: Browse History and
+/// Commit Changes, each checkmarked when its screen is the active one (read live
+/// from `nav`). Picking the inactive entry switches screens; picking the one
+/// already checked is a no-op. Mirrors the Ctrl+B / Ctrl+C accelerators.
+fn mode_items(commands: &Rc<RefCell<Vec<AppCommand>>>, nav: &Rc<RefCell<MenuNav>>) -> Vec<MenuItem> {
+    let is_mode = |mode: Mode| {
+        let nav = nav.clone();
+        move || nav.borrow().mode == mode
+    };
+    vec![
+        cmd_item("&Browse History", commands, AppCommand::EnterBrowseMode)
+            .with_accel("Ctrl+B")
+            .with_checked(is_mode(Mode::Browse)),
+        cmd_item("&Commit Changes", commands, AppCommand::EnterCommitMode)
+            .with_accel("Ctrl+C")
+            .with_checked(is_mode(Mode::Commit)),
+    ]
 }
 
 /// The View-menu entries that drive the graphical image diff, shared by both
@@ -1508,6 +1539,20 @@ fn is_trailer_line(line: &str) -> bool {
     };
     let key = key.to_ascii_lowercase();
     key.ends_with("-by") && key.chars().all(|c| c.is_ascii_alphabetic() || c == '-')
+}
+
+/// The screen switch a Ctrl-chord `letter` requests, given the `current` screen.
+/// Ctrl+B selects Browse, Ctrl+C selects Commit — but only when that isn't
+/// already the active screen, so an idempotent press yields `None` and the chord
+/// falls through to the focused widget (keeping Ctrl+C as copy on the commit
+/// screen). Any other letter is `None`.
+fn mode_switch_command(letter: Option<char>, current: Mode) -> Option<AppCommand> {
+    let (target, command) = match letter {
+        Some('b') => (Mode::Browse, AppCommand::EnterBrowseMode),
+        Some('c') => (Mode::Commit, AppCommand::EnterCommitMode),
+        _ => return None,
+    };
+    (current != target).then_some(command)
 }
 
 /// Index of the next (`forward`) or previous image file in `files` relative to
@@ -1634,7 +1679,10 @@ fn status_icon(status: ChangeStatus) -> SvgImage {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_trailer_line, next_image_index, other_image_exists, with_signoff};
+    use super::{
+        AppCommand, Mode, is_trailer_line, mode_switch_command, next_image_index,
+        other_image_exists, with_signoff,
+    };
     use crate::backend::{ChangeStatus, FileChange};
 
     fn files(paths: &[&str]) -> Vec<FileChange> {
@@ -1681,6 +1729,26 @@ mod tests {
         assert!(other_image_exists(&one, None));
         // No images at all.
         assert!(!other_image_exists(&files(&["a.txt", "b.rs"]), None));
+    }
+
+    #[test]
+    fn ctrl_b_c_switch_screens_only_when_off_the_target() {
+        // Ctrl+C from Browse switches to Commit; Ctrl+B from Commit switches back.
+        assert_eq!(
+            mode_switch_command(Some('c'), Mode::Browse),
+            Some(AppCommand::EnterCommitMode)
+        );
+        assert_eq!(
+            mode_switch_command(Some('b'), Mode::Commit),
+            Some(AppCommand::EnterBrowseMode)
+        );
+        // Pressing the chord for the screen you're already on yields nothing, so
+        // the key falls through — e.g. Ctrl+C stays copy in the commit editor.
+        assert_eq!(mode_switch_command(Some('c'), Mode::Commit), None);
+        assert_eq!(mode_switch_command(Some('b'), Mode::Browse), None);
+        // Any other Ctrl chord isn't a screen switch.
+        assert_eq!(mode_switch_command(Some('x'), Mode::Browse), None);
+        assert_eq!(mode_switch_command(None, Mode::Commit), None);
     }
 
     #[test]
@@ -1911,4 +1979,5 @@ mod commit_focus_tests {
         assert!(client.cycle_image_mode());
         assert!(client.show_image_side(true));
     }
+
 }

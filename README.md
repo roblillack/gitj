@@ -86,12 +86,15 @@ cargo install gitj
   adding a new commit.
 * **Rescan** re-reads the working tree. Committing returns to the log view,
   which now shows the new commit.
-* **Keyboard shortcuts** mirror `git gui` (and are shown next to each Commit
-  menu item): **Ctrl+Enter** commits, **Ctrl+T** stages the selected file,
-  **Ctrl+I** stages everything, **Ctrl+J** reverts (or deletes) the selected
-  unstaged file, **Ctrl+S** appends a `Signed-off-by` trailer, **Ctrl+R**
-  rescans, and the message editor takes the usual **Ctrl+C / X / V / A**.
-  **Ctrl+Q** quits from either screen.
+* **Keyboard shortcuts** mirror `git gui` (and are shown next to each menu
+  item): **Ctrl+B** / **Ctrl+C** switch between the **Browse History** and
+  **Commit Changes** screens — the active one is checkmarked in the **View**
+  menu — **Ctrl+Enter** commits, **Ctrl+T** stages the selected file, **Ctrl+I**
+  stages everything, **Ctrl+J** reverts (or deletes) the selected unstaged file,
+  **Ctrl+S** appends a `Signed-off-by` trailer, and **Ctrl+R** rescans. The
+  message editor takes the usual **Ctrl+C / X / V / A**: Ctrl+C only switches
+  screens from the browse view, so it stays available as copy while you edit the
+  commit message. **Ctrl+Q** quits from either screen.
 
 ### Throughout
 
