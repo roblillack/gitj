@@ -16,8 +16,8 @@ use std::collections::BTreeSet;
 use std::rc::Rc;
 
 use saudade::{
-    Button, Checkbox, Dialog, Event, EventCtx, Key, List, ListItem, Menu, MenuBar, MenuItem,
-    NamedKey, Painter, PopupRequest, Rect, SvgImage, TextEditor, Theme, Widget, include_svg,
+    Button, Checkbox, Dialog, Event, EventCtx, List, ListItem, Menu, MenuBar, MenuItem, Painter,
+    PopupRequest, Rect, SvgImage, TextEditor, Theme, Widget, include_svg,
 };
 
 use crate::backend::{
@@ -1183,94 +1183,6 @@ impl GitClient {
         nav.can_nav_images = can_nav_images;
     }
 
-    /// `git gui`-style keyboard accelerators, handled before the active screen
-    /// sees the event so they fire regardless of which pane holds focus — in
-    /// particular Ctrl+Enter commits instead of inserting a newline in the
-    /// message editor. Returns `true` when the keystroke was consumed.
-    fn handle_shortcut(&mut self, event: &Event, ctx: &mut EventCtx) -> bool {
-        // While a modal dialog is up it owns the keyboard.
-        if self.dialog.borrow().is_open() {
-            return false;
-        }
-        let Event::KeyDown { key, modifiers } = event else {
-            return false;
-        };
-        // Only plain Ctrl-chords; Alt / Logo combos belong to the menu bar / OS.
-        if !modifiers.control || modifiers.alt || modifiers.logo {
-            return false;
-        }
-
-        let letter = match key {
-            Key::Char(c) => Some(c.to_ascii_lowercase()),
-            _ => None,
-        };
-
-        // Ctrl+Q quits from either screen (git gui binds quit globally).
-        if letter == Some('q') {
-            ctx.close();
-            return true;
-        }
-
-        // Ctrl+B / Ctrl+C switch screens (Browse / Commit), like the View menu.
-        // The decision lives in `mode_switch_command`: it yields a switch only
-        // when the key would actually change screens. When it's already the
-        // active screen the chord falls through (matching nothing else below) to
-        // the focused widget — in particular Ctrl+C stays as copy in the commit
-        // message editor.
-        if let Some(command) = mode_switch_command(letter, self.mode) {
-            self.commands.borrow_mut().push(command);
-            return true;
-        }
-
-        // Image-diff accelerators work on both screens. `needs_image` is whether
-        // the action requires an image to be on screen (Switch Mode / Before /
-        // After) vs. just another image to jump to (Next / Previous). When the
-        // action doesn't currently apply we fall through (return false) so the
-        // key still reaches the focused widget — e.g. Ctrl+Left / Right keep
-        // working as word-jump in the message editor when no image is shown.
-        let image_cmd = match key {
-            Key::Named(NamedKey::Left) => Some((AppCommand::ShowImageBefore, true)),
-            Key::Named(NamedKey::Right) => Some((AppCommand::ShowImageAfter, true)),
-            _ => match letter {
-                Some('m') => Some((AppCommand::CycleImageMode, true)),
-                Some('n') => Some((AppCommand::NextImage, false)),
-                Some('p') => Some((AppCommand::PrevImage, false)),
-                _ => None,
-            },
-        };
-        if let Some((command, needs_image)) = image_cmd {
-            let applicable = if needs_image {
-                self.active_showing_image()
-            } else {
-                self.has_other_image()
-            };
-            if applicable {
-                self.commands.borrow_mut().push(command);
-                return true;
-            }
-            return false;
-        }
-
-        // The remaining accelerators drive the staging screen.
-        if self.mode != Mode::Commit {
-            return false;
-        }
-        let command = if matches!(key, Key::Named(NamedKey::Enter)) {
-            AppCommand::Commit
-        } else {
-            match letter {
-                Some('r') => AppCommand::Rescan,
-                Some('t') => AppCommand::StageSelected,
-                Some('i') => AppCommand::StageAll,
-                Some('u') => AppCommand::UnstageSelected,
-                Some('j') => AppCommand::RevertSelected,
-                Some('s') => AppCommand::SignOff,
-                _ => return false,
-            }
-        };
-        self.commands.borrow_mut().push(command);
-        true
-    }
 }
 
 impl Widget for GitClient {
@@ -1287,10 +1199,13 @@ impl Widget for GitClient {
     }
 
     fn event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        // Application accelerators take precedence over the focused pane.
-        if !self.handle_shortcut(event, ctx) {
-            self.active_mut().event(event, ctx);
-        }
+        // Keyboard accelerators live on each screen's menu bar (`with_accel`):
+        // the Shell's accelerator pass hands every key to the bar before the
+        // focused pane, so e.g. Ctrl+Enter commits instead of inserting a
+        // newline in the message editor. A chord whose item is disabled falls
+        // through to the focused widget, and an open dialog overlay owns the
+        // keyboard outright — both come with the routing, no gating here.
+        self.active_mut().event(event, ctx);
         // After the tree processes the event, apply commands and sync the
         // active screen's dependent panes.
         let mut dirty = self.drain_commands();
@@ -1408,8 +1323,10 @@ fn build_commit_menu(
 
 /// The View-menu mode switches, shared by both screens: Browse History and
 /// Commit Changes, each checkmarked when its screen is the active one (read live
-/// from `nav`). Picking the inactive entry switches screens; picking the one
-/// already checked is a no-op. Mirrors the Ctrl+B / Ctrl+C accelerators.
+/// from `nav`). Picking the entry that's already checked is a harmless no-op, so
+/// both stay enabled. The accelerators are Ctrl+1 / Ctrl+2 — view switching à la
+/// GitHub Desktop — deliberately clear of every editing chord (Ctrl+C must stay
+/// copy in the commit message editor), so no fall-through gating is needed.
 fn mode_items(commands: &Rc<RefCell<Vec<AppCommand>>>, nav: &Rc<RefCell<MenuNav>>) -> Vec<MenuItem> {
     let is_mode = |mode: Mode| {
         let nav = nav.clone();
@@ -1417,10 +1334,10 @@ fn mode_items(commands: &Rc<RefCell<Vec<AppCommand>>>, nav: &Rc<RefCell<MenuNav>
     };
     vec![
         cmd_item("&Browse History", commands, AppCommand::EnterBrowseMode)
-            .with_accel("Ctrl+B")
+            .with_accel("Ctrl+1")
             .with_checked(is_mode(Mode::Browse)),
         cmd_item("&Commit Changes", commands, AppCommand::EnterCommitMode)
-            .with_accel("Ctrl+C")
+            .with_accel("Ctrl+2")
             .with_checked(is_mode(Mode::Commit)),
     ]
 }
@@ -1541,20 +1458,6 @@ fn is_trailer_line(line: &str) -> bool {
     };
     let key = key.to_ascii_lowercase();
     key.ends_with("-by") && key.chars().all(|c| c.is_ascii_alphabetic() || c == '-')
-}
-
-/// The screen switch a Ctrl-chord `letter` requests, given the `current` screen.
-/// Ctrl+B selects Browse, Ctrl+C selects Commit — but only when that isn't
-/// already the active screen, so an idempotent press yields `None` and the chord
-/// falls through to the focused widget (keeping Ctrl+C as copy on the commit
-/// screen). Any other letter is `None`.
-fn mode_switch_command(letter: Option<char>, current: Mode) -> Option<AppCommand> {
-    let (target, command) = match letter {
-        Some('b') => (Mode::Browse, AppCommand::EnterBrowseMode),
-        Some('c') => (Mode::Commit, AppCommand::EnterCommitMode),
-        _ => return None,
-    };
-    (current != target).then_some(command)
 }
 
 /// Index of the next (`forward`) or previous image file in `files` relative to
@@ -1681,10 +1584,7 @@ fn status_icon(status: ChangeStatus) -> SvgImage {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        AppCommand, Mode, is_trailer_line, mode_switch_command, next_image_index,
-        other_image_exists, with_signoff,
-    };
+    use super::{is_trailer_line, next_image_index, other_image_exists, with_signoff};
     use crate::backend::{ChangeStatus, FileChange};
 
     fn files(paths: &[&str]) -> Vec<FileChange> {
@@ -1731,26 +1631,6 @@ mod tests {
         assert!(other_image_exists(&one, None));
         // No images at all.
         assert!(!other_image_exists(&files(&["a.txt", "b.rs"]), None));
-    }
-
-    #[test]
-    fn ctrl_b_c_switch_screens_only_when_off_the_target() {
-        // Ctrl+C from Browse switches to Commit; Ctrl+B from Commit switches back.
-        assert_eq!(
-            mode_switch_command(Some('c'), Mode::Browse),
-            Some(AppCommand::EnterCommitMode)
-        );
-        assert_eq!(
-            mode_switch_command(Some('b'), Mode::Commit),
-            Some(AppCommand::EnterBrowseMode)
-        );
-        // Pressing the chord for the screen you're already on yields nothing, so
-        // the key falls through — e.g. Ctrl+C stays copy in the commit editor.
-        assert_eq!(mode_switch_command(Some('c'), Mode::Commit), None);
-        assert_eq!(mode_switch_command(Some('b'), Mode::Browse), None);
-        // Any other Ctrl chord isn't a screen switch.
-        assert_eq!(mode_switch_command(Some('x'), Mode::Browse), None);
-        assert_eq!(mode_switch_command(None, Mode::Commit), None);
     }
 
     #[test]

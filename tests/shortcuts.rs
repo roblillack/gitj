@@ -243,6 +243,51 @@ fn ctrl_j_on_untracked_then_confirm_deletes_the_file() {
 }
 
 #[test]
+fn ctrl_1_and_2_switch_between_browse_and_commit() {
+    let be = Rc::new(FixtureBackend::sample());
+    let client = GitClient::new(be.clone());
+    let backend = MockBackend::new(CW, CH)
+        .with_scale(1.0)
+        .with_font(common::sans_font())
+        .with_mono_font(common::mono_font());
+    let mut w: Box<dyn Widget> = Box::new(client);
+    let _ = backend.render(w.as_mut());
+    w.focus_first();
+
+    // The app starts on the browse screen, whose menu bar carries no staging
+    // accelerators — Ctrl+T is inert there.
+    backend.dispatch(w.as_mut(), &ctrl_char('t'));
+    assert!(
+        !be.working_status(false)
+            .staged
+            .iter()
+            .any(|f| f.path == "src/ui.rs"),
+        "Ctrl+T must do nothing on the browse screen"
+    );
+
+    // Ctrl+2 switches to the commit screen; the staging accelerators are live
+    // now, so Ctrl+T stages the auto-selected first unstaged file.
+    backend.dispatch(w.as_mut(), &ctrl_char('2'));
+    backend.dispatch(w.as_mut(), &ctrl_char('t'));
+    assert!(
+        be.working_status(false)
+            .staged
+            .iter()
+            .any(|f| f.path == "src/ui.rs"),
+        "Ctrl+2 should land on the commit screen, where Ctrl+T stages"
+    );
+
+    // Ctrl+1 returns to the browse screen, deactivating them again.
+    backend.dispatch(w.as_mut(), &ctrl_char('1'));
+    backend.dispatch(w.as_mut(), &ctrl_char('i'));
+    assert_eq!(
+        be.working_status(false).unstaged.len(),
+        1,
+        "back on the browse screen, Ctrl+I must not stage the remaining file"
+    );
+}
+
+#[test]
 fn ctrl_q_requests_window_close() {
     let (_be, backend, mut w) = commit_client();
     let outcome = backend.dispatch(w.as_mut(), &ctrl_char('q'));
