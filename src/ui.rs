@@ -1262,6 +1262,7 @@ impl GitClient {
                 Some('r') => AppCommand::Rescan,
                 Some('t') => AppCommand::StageSelected,
                 Some('i') => AppCommand::StageAll,
+                Some('u') => AppCommand::UnstageSelected,
                 Some('j') => AppCommand::RevertSelected,
                 Some('s') => AppCommand::SignOff,
                 _ => return false,
@@ -1392,7 +1393,8 @@ fn build_commit_menu(
                 cmd_item("&Stage Selected", &commands, AppCommand::StageSelected)
                     .with_accel("Ctrl+T"),
                 cmd_item("Stage &All", &commands, AppCommand::StageAll).with_accel("Ctrl+I"),
-                cmd_item("&Unstage Selected", &commands, AppCommand::UnstageSelected),
+                cmd_item("&Unstage Selected", &commands, AppCommand::UnstageSelected)
+                    .with_accel("Ctrl+U"),
                 cmd_item("Re&vert Changes", &commands, AppCommand::RevertSelected)
                     .with_accel("Ctrl+J"),
                 MenuItem::separator(),

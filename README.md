@@ -90,8 +90,9 @@ cargo install gitj
   item): **Ctrl+B** / **Ctrl+C** switch between the **Browse History** and
   **Commit Changes** screens — the active one is checkmarked in the **View**
   menu — **Ctrl+Enter** commits, **Ctrl+T** stages the selected file, **Ctrl+I**
-  stages everything, **Ctrl+J** reverts (or deletes) the selected unstaged file,
-  **Ctrl+S** appends a `Signed-off-by` trailer, and **Ctrl+R** rescans. The
+  stages everything, **Ctrl+U** unstages the selected file, **Ctrl+J** reverts
+  (or deletes) the selected unstaged file, **Ctrl+S** appends a `Signed-off-by`
+  trailer, and **Ctrl+R** rescans. The
   message editor takes the usual **Ctrl+C / X / V / A**: Ctrl+C only switches
   screens from the browse view, so it stays available as copy while you edit the
   commit message. **Ctrl+Q** quits from either screen.

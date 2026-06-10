@@ -111,6 +111,37 @@ fn ctrl_i_stages_every_unstaged_file() {
 }
 
 #[test]
+fn ctrl_u_unstages_the_selected_staged_file() {
+    let (be, backend, mut w) = commit_client();
+    // src/widgets/commit_panel.rs is staged in the sample fixture. Select it in
+    // the lower-left staged list (the same row the staged-file snapshot clicks).
+    assert!(
+        be.working_status(false)
+            .staged
+            .iter()
+            .any(|f| f.path == "src/widgets/commit_panel.rs")
+    );
+    backend.dispatch(w.as_mut(), &click(60, 304));
+    backend.dispatch(w.as_mut(), &release(60, 304));
+
+    backend.dispatch(w.as_mut(), &ctrl_char('u'));
+
+    let ws = be.working_status(false);
+    assert!(
+        !ws.staged
+            .iter()
+            .any(|f| f.path == "src/widgets/commit_panel.rs"),
+        "Ctrl+U should unstage the selected file, got {ws:?}"
+    );
+    assert!(
+        ws.unstaged
+            .iter()
+            .any(|f| f.path == "src/widgets/commit_panel.rs"),
+        "the file should reappear in the unstaged list"
+    );
+}
+
+#[test]
 fn ctrl_enter_commits_with_the_typed_message() {
     let (be, backend, mut w) = commit_client();
     // Focus the message editor, type a message, then commit with Ctrl+Enter.
