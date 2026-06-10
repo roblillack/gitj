@@ -23,7 +23,10 @@ categories = ["gui", "development-tools"]
 include = ["src/**/*.rs", "assets/status/*.svg", "Cargo.toml", "README.md", "LICENSE"]
 
 [dependencies]
-saudade = "0.4"
+# Local checkout while the bulk-blit API (`Painter::blit_argb`, used by the
+# graphical image diff) is unreleased; switch back to a published version once
+# saudade ships it.
+saudade = { path = "../saudade" }
 git2 = { version = "0.18", default-features = false }
 # Decodes the image blobs the graphical diff compares. A trimmed feature set
 # (the raster formats people actually commit) keeps the build light; SVG stays a

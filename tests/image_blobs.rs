@@ -53,8 +53,10 @@ fn reads_image_blobs_from_commits_and_working_tree() {
         index.add_path(Path::new("logo.png")).unwrap();
         index.write().unwrap();
         let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
-        let parents: Vec<git2::Commit> =
-            parent.into_iter().map(|p| repo.find_commit(p).unwrap()).collect();
+        let parents: Vec<git2::Commit> = parent
+            .into_iter()
+            .map(|p| repo.find_commit(p).unwrap())
+            .collect();
         let refs: Vec<&git2::Commit> = parents.iter().collect();
         repo.commit(Some("HEAD"), &sig, &sig, msg, &tree, &refs)
             .unwrap()

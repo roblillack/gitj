@@ -234,17 +234,11 @@ impl ImageDiffView {
         }
         let ox = area.x + (area.w - canvas.w as i32) / 2;
         let oy = area.y + (area.h - canvas.h as i32) / 2;
+        // One bulk blit rather than a `pixel()` call per pixel: the composed
+        // canvas is opaque, so it goes straight into the framebuffer with the
+        // logical→physical snap done once per row/column instead of per pixel.
         let saved = painter.push_clip(area);
-        for cy in 0..canvas.h {
-            let row = (cy * canvas.w) as usize;
-            for cx in 0..canvas.w {
-                painter.pixel(
-                    ox + cx as i32,
-                    oy + cy as i32,
-                    Color(canvas.argb[row + cx as usize]),
-                );
-            }
-        }
+        painter.blit_argb(ox, oy, canvas.w, canvas.h, &canvas.argb);
         painter.restore_clip(saved);
     }
 
@@ -418,7 +412,10 @@ mod tests {
         let img = image::RgbaImage::from_pixel(w, h, image::Rgba(color));
         let mut bytes = Vec::new();
         image::DynamicImage::ImageRgba8(img)
-            .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
             .unwrap();
         bytes
     }
@@ -498,7 +495,12 @@ mod tests {
         assert!(v.captures_pointer(), "the slider drag captures the pointer");
 
         // Drag back to the left: the value follows the pointer down.
-        be.dispatch(&mut v, &Event::PointerMove { pos: Point::new(hit.x + 1, cy) });
+        be.dispatch(
+            &mut v,
+            &Event::PointerMove {
+                pos: Point::new(hit.x + 1, cy),
+            },
+        );
         assert!(v.slider() < 0.1, "dragging left lowers the value");
 
         // Releasing ends the drag.

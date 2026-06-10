@@ -715,8 +715,9 @@ impl GitClient {
         // doesn't apply to it (the image view has no selectable lines).
         if let Some(file) = files.get(i)
             && is_image_path(&file.path)
-            && let Some(cmp) =
-                ImageComparison::from_blobs(&self.backend.working_file_blobs(&file.path, staged, amend))
+            && let Some(cmp) = ImageComparison::from_blobs(
+                &self.backend.working_file_blobs(&file.path, staged, amend),
+            )
         {
             view.show_image(cmp);
             return;

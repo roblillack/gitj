@@ -278,14 +278,7 @@ fn commit_mode_image_diff_difference() {
         // focus), then press `m` three times: 2-Up → Swipe → Onion →
         // Difference. Keyboard-driven so the test never depends on
         // font-dependent button widths.
-        || {
-            vec![
-                click(568, 120),
-                char_key('m'),
-                char_key('m'),
-                char_key('m'),
-            ]
-        },
+        || vec![click(568, 120), char_key('m'), char_key('m'), char_key('m')],
     );
 }
 

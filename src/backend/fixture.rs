@@ -8,8 +8,8 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use super::{
-    BlobPair, ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, RefKind, RefLabel,
-    RepoBackend, WorkingStatus,
+    BlobPair, ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, RefKind,
+    RefLabel, RepoBackend, WorkingStatus,
 };
 
 /// A file changed by a commit, paired with the diff that produced it.

@@ -16,9 +16,11 @@
 //!   differ in size, so don't overlap).
 //! * **Left** / **Right** — just one side, full size.
 //!
-//! [`ImageComparison`] owns the decoded images and a small cache of the
-//! fit-scaled buffers, so [`ImageComparison::render`] is cheap to call every
-//! frame as the slider moves. The widget that drives it lives in
+//! [`ImageComparison`] owns the decoded images, a cache of the fit-scaled
+//! buffers, and the last fully-composed [`Canvas`] keyed by what produced it —
+//! so [`ImageComparison::render`] is cheap to call every frame: an unchanged
+//! repaint (a caret blink, a scroll in another pane) returns the cached canvas
+//! without re-scaling or re-compositing. The widget that drives it lives in
 //! [`crate::widgets::ImageDiffView`].
 
 use image::{Rgba, RgbaImage};
@@ -128,6 +130,26 @@ impl Canvas {
     }
 }
 
+/// How finely the slider position is quantized for the [`RenderCache`] key.
+/// 1000 steps is finer than a pixel on any real pane, so the cache only misses
+/// when the composited image would actually change.
+const SLIDER_STEPS: u32 = 1000;
+
+/// The last fully-composed [`Canvas`] and the key it was built for. A repaint
+/// that changes none of `(mode, slider, box)` re-blits these pixels instead of
+/// re-running the scale + composite + flatten pipeline — which matters because
+/// the toolkit repaints the whole tree on any event (a caret blink, a scroll
+/// elsewhere), each of which would otherwise recompose the image from scratch.
+struct RenderCache {
+    mode: CompareMode,
+    /// Slider position quantized to [`SLIDER_STEPS`]; held at 0 for modes that
+    /// ignore the slider, so their cache survives an unrelated slider change.
+    slider_key: u32,
+    box_w: u32,
+    box_h: u32,
+    canvas: Canvas,
+}
+
 /// Fit-scaled buffers cached for a given render box, so the slider modes don't
 /// re-scale the originals every frame.
 struct FitCache {
@@ -147,6 +169,7 @@ pub struct ImageComparison {
     new: Option<RgbaImage>,
     meta: String,
     cache: Option<FitCache>,
+    render_cache: Option<RenderCache>,
 }
 
 impl ImageComparison {
@@ -164,6 +187,7 @@ impl ImageComparison {
             new,
             meta,
             cache: None,
+            render_cache: None,
         })
     }
 
@@ -172,9 +196,38 @@ impl ImageComparison {
         &self.meta
     }
 
-    /// Compose `mode` (at slider position `slider`, 0..1) into an opaque canvas
-    /// that fits within `box_w` × `box_h`.
-    pub fn render(&mut self, mode: CompareMode, slider: f32, box_w: u32, box_h: u32) -> Canvas {
+    /// The opaque canvas for `mode` at slider position `slider` (0..1), fitting
+    /// within `box_w` × `box_h`. Returns a cached canvas when nothing that
+    /// affects the pixels has changed since the last call, so repaints driven by
+    /// unrelated UI activity don't recompose the image (see [`RenderCache`]).
+    pub fn render(&mut self, mode: CompareMode, slider: f32, box_w: u32, box_h: u32) -> &Canvas {
+        let slider_key = if mode.uses_slider() {
+            (slider.clamp(0.0, 1.0) * SLIDER_STEPS as f32).round() as u32
+        } else {
+            0
+        };
+        let hit = self.render_cache.as_ref().is_some_and(|c| {
+            c.mode == mode && c.slider_key == slider_key && c.box_w == box_w && c.box_h == box_h
+        });
+        if !hit {
+            let canvas = self.compose(mode, slider, box_w, box_h);
+            self.render_cache = Some(RenderCache {
+                mode,
+                slider_key,
+                box_w,
+                box_h,
+                canvas,
+            });
+        }
+        &self
+            .render_cache
+            .as_ref()
+            .expect("cache just populated")
+            .canvas
+    }
+
+    /// Run the scale + composite + flatten pipeline for `mode`, with no caching.
+    fn compose(&mut self, mode: CompareMode, slider: f32, box_w: u32, box_h: u32) -> Canvas {
         if box_w == 0 || box_h == 0 {
             return Canvas::empty();
         }
@@ -244,7 +297,9 @@ impl ImageComparison {
 
 /// Decode raw image bytes to RGBA, or `None` if the format isn't recognized.
 fn decode(bytes: &[u8]) -> Option<RgbaImage> {
-    image::load_from_memory(bytes).ok().map(|img| img.to_rgba8())
+    image::load_from_memory(bytes)
+        .ok()
+        .map(|img| img.to_rgba8())
 }
 
 /// Scale one image to fit within `max_w` × `max_h`, preserving aspect ratio.
@@ -272,7 +327,10 @@ fn single(img: Option<&RgbaImage>, box_w: u32, box_h: u32) -> RgbaImage {
 /// Lay both sides on a common canvas (the max of the two sizes) so identical
 /// coordinates line up. A missing side becomes a transparent canvas.
 fn normalize_pair(a: Option<&RgbaImage>, b: Option<&RgbaImage>) -> (RgbaImage, RgbaImage) {
-    let w = a.map_or(0, |i| i.width()).max(b.map_or(0, |i| i.width())).max(1);
+    let w = a
+        .map_or(0, |i| i.width())
+        .max(b.map_or(0, |i| i.width()))
+        .max(1);
     let h = a
         .map_or(0, |i| i.height())
         .max(b.map_or(0, |i| i.height()))
@@ -490,7 +548,10 @@ mod tests {
         let img = RgbaImage::from_pixel(w, h, Rgba(color));
         let mut bytes = Vec::new();
         image::DynamicImage::ImageRgba8(img)
-            .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
             .unwrap();
         bytes
     }
@@ -544,6 +605,45 @@ mod tests {
         let canvas = cmp.render(CompareMode::Difference, 0.0, 32, 32);
         // Identical inputs → zero difference → black (0xFF000000) everywhere.
         assert!(canvas.argb.iter().all(|&p| p == 0xFF00_0000));
+    }
+
+    #[test]
+    fn render_reuses_the_cached_canvas_until_the_key_changes() {
+        let blobs = BlobPair {
+            old: Some(png(8, 8, [255, 0, 0, 255])),
+            new: Some(png(8, 8, [0, 0, 255, 255])),
+        };
+        let mut cmp = ImageComparison::from_blobs(&blobs).expect("decodes");
+        // The buffer address identifies the cached canvas: a cache hit returns
+        // the same stored `Canvas`, a miss composes a fresh one (a new alloc,
+        // built while the old is still live, so the pointers always differ).
+        let ptr = |c: &mut ImageComparison, m, s, w, h| c.render(m, s, w, h).argb.as_ptr();
+
+        let a = ptr(&mut cmp, CompareMode::TwoUp, 0.5, 64, 64);
+        assert_eq!(
+            a,
+            ptr(&mut cmp, CompareMode::TwoUp, 0.5, 64, 64),
+            "same key reuses the cached canvas"
+        );
+        assert_eq!(
+            a,
+            ptr(&mut cmp, CompareMode::TwoUp, 0.9, 64, 64),
+            "the slider is irrelevant in 2-up, so the cache stays warm"
+        );
+        let b = ptr(&mut cmp, CompareMode::TwoUp, 0.5, 80, 64);
+        assert_ne!(a, b, "a different box size recomposes");
+        let c = ptr(&mut cmp, CompareMode::Swipe, 0.5, 80, 64);
+        assert_ne!(b, c, "a different mode recomposes");
+        assert_eq!(
+            c,
+            ptr(&mut cmp, CompareMode::Swipe, 0.5, 80, 64),
+            "a slider mode caches at a fixed slider position"
+        );
+        assert_ne!(
+            c,
+            ptr(&mut cmp, CompareMode::Swipe, 0.95, 80, 64),
+            "moving the slider in a slider mode recomposes"
+        );
     }
 
     #[test]

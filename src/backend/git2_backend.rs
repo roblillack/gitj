@@ -6,8 +6,8 @@ use std::path::Path;
 use git2::{Commit, Delta, DiffFormat, DiffLineType, DiffOptions, Oid, Repository, Sort};
 
 use super::{
-    BlobPair, ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, RefKind, RefLabel,
-    RepoBackend, WorkingStatus,
+    BlobPair, ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, RefKind,
+    RefLabel, RepoBackend, WorkingStatus,
 };
 
 /// Opens a repository and reads commits/diffs through libgit2.
@@ -138,10 +138,7 @@ impl RepoBackend for Git2Backend {
         let Some(commit) = self.commit_at(index) else {
             return BlobPair::default();
         };
-        let new = commit
-            .tree()
-            .ok()
-            .and_then(|t| self.blob_in_tree(&t, path));
+        let new = commit.tree().ok().and_then(|t| self.blob_in_tree(&t, path));
         // The version in the first parent (the diff base); absent for an added
         // file, or for a rename where the old content lives under a different
         // path (a rare case for images, left as a one-sided comparison).
