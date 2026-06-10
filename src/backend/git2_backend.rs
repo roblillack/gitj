@@ -10,12 +10,18 @@ use super::{
     RepoBackend, WorkingStatus,
 };
 
-/// Above this many changed files, skip rename/copy detection. `find_similar` is
-/// roughly O(adds × deletes), so on a huge diff (e.g. a big merge touching
-/// thousands of files) it takes the better part of a minute and freezes the UI.
-/// Git's own CLI does the same via `diff.renameLimit` (default ~1000). The cost
-/// of skipping is that renames in such a diff show as separate add/delete pairs.
-const MAX_RENAME_FILES: usize = 1000;
+/// Cap on the rename/copy-detection workload, in candidate pairs. `find_similar`
+/// builds an O(added × deleted) content-similarity matrix, so its cost tracks
+/// that product — **not** the total number of changed files: a modification-only
+/// commit is cheap at any size, while an add/delete-heavy one is costly even when
+/// smaller (a 4240-file all-additions commit detects in ~0.1ms; an 8157-file
+/// merge with ~4100 adds × ~3500 deletes took ~49s and froze the UI). Past this
+/// many pairs we skip rename detection so a big merge can't hang the UI; ~100k
+/// keeps the matching well under a second while still catching renames among a
+/// few hundred files on each side. The cost of skipping is that renames in such
+/// a diff show as add/delete pairs (git's CLI does the same past
+/// `diff.renameLimit`).
+const MAX_RENAME_PAIRS: usize = 100_000;
 
 /// Cap on the number of lines [`render_diff`] emits for one diff. A pathological
 /// commit (again, a big merge) can produce well over a million patch lines;
@@ -78,9 +84,20 @@ impl Git2Backend {
             .diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), Some(&mut opts))
             .ok()?;
         // Detect renames/copies so statuses and headers are accurate — but only
-        // for diffs small enough that the O(adds × deletes) matching stays cheap
-        // (see [`MAX_RENAME_FILES`]); a huge merge would otherwise hang the UI.
-        if diff.deltas().len() <= MAX_RENAME_FILES {
+        // when the similarity matrix is small enough to stay cheap. Its cost is
+        // ~O(added × deletes), so gate on that product rather than the total
+        // file count (see [`MAX_RENAME_PAIRS`]); a huge merge would otherwise
+        // hang the UI. Counts are taken before detection, so they're the raw
+        // add/delete candidate pool.
+        let (mut added, mut deleted) = (0usize, 0usize);
+        for delta in diff.deltas() {
+            match delta.status() {
+                Delta::Added => added += 1,
+                Delta::Deleted => deleted += 1,
+                _ => {}
+            }
+        }
+        if added.saturating_mul(deleted) <= MAX_RENAME_PAIRS {
             let _ = diff.find_similar(None);
         }
         Some(diff)
@@ -480,7 +497,9 @@ fn render_diff(diff: git2::Diff) -> Diff {
     if truncated {
         lines.push(DiffLine::new(
             DiffLineKind::Meta,
-            format!("\u{2026} diff truncated at {MAX_DIFF_LINES} lines — too large to display in full"),
+            format!(
+                "\u{2026} diff truncated at {MAX_DIFF_LINES} lines — too large to display in full"
+            ),
         ));
     }
     Diff { lines }
