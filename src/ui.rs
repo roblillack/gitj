@@ -1182,7 +1182,6 @@ impl GitClient {
         nav.showing_image = showing_image;
         nav.can_nav_images = can_nav_images;
     }
-
 }
 
 impl Widget for GitClient {
@@ -1327,7 +1326,10 @@ fn build_commit_menu(
 /// both stay enabled. The accelerators are Ctrl+1 / Ctrl+2 — view switching à la
 /// GitHub Desktop — deliberately clear of every editing chord (Ctrl+C must stay
 /// copy in the commit message editor), so no fall-through gating is needed.
-fn mode_items(commands: &Rc<RefCell<Vec<AppCommand>>>, nav: &Rc<RefCell<MenuNav>>) -> Vec<MenuItem> {
+fn mode_items(
+    commands: &Rc<RefCell<Vec<AppCommand>>>,
+    nav: &Rc<RefCell<MenuNav>>,
+) -> Vec<MenuItem> {
     let is_mode = |mode: Mode| {
         let nav = nav.clone();
         move || nav.borrow().mode == mode
@@ -1861,5 +1863,4 @@ mod commit_focus_tests {
         assert!(client.cycle_image_mode());
         assert!(client.show_image_side(true));
     }
-
 }
