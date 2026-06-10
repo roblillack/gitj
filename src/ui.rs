@@ -1091,21 +1091,17 @@ impl GitClient {
         match self.mode {
             Mode::Browse => {
                 let sel = self.file_list.borrow().selected_index();
-                next_image_index(&self.current_files, sel, true).is_some()
+                other_image_exists(&self.current_files, sel)
             }
             Mode::Commit => match self.active_commit_side() {
-                Side::Unstaged => next_image_index(
+                Side::Unstaged => other_image_exists(
                     &self.working.unstaged,
                     self.unstaged_list.borrow().selected_index(),
-                    true,
-                )
-                .is_some(),
-                Side::Staged => next_image_index(
+                ),
+                Side::Staged => other_image_exists(
                     &self.working.staged,
                     self.staged_list.borrow().selected_index(),
-                    true,
-                )
-                .is_some(),
+                ),
             },
         }
     }
@@ -1515,9 +1511,8 @@ fn is_trailer_line(line: &str) -> bool {
 }
 
 /// Index of the next (`forward`) or previous image file in `files` relative to
-/// the selection `cur`, wrapping around the list. `None` when there is no image
-/// file other than the one already at `cur` — the condition that disables the
-/// Next / Previous Image actions. When `cur` isn't itself an image, the nearest
+/// the selection `cur`. Navigation does not wrap: `None` once there is no further
+/// image in the chosen direction. When `cur` isn't itself an image, the nearest
 /// image in the chosen direction is picked.
 fn next_image_index(files: &[FileChange], cur: Option<usize>, forward: bool) -> Option<usize> {
     let images: Vec<usize> = files
@@ -1526,25 +1521,29 @@ fn next_image_index(files: &[FileChange], cur: Option<usize>, forward: bool) -> 
         .filter(|(_, f)| is_image_path(&f.path))
         .map(|(i, _)| i)
         .collect();
-    // There must be an image to move *to* — one that isn't the current row.
-    if !images.iter().any(|&i| Some(i) != cur) {
-        return None;
-    }
     let cur = cur.map(|c| c as i32);
-    let target = if forward {
+    if forward {
         match cur {
             Some(c) => images.iter().copied().find(|&i| i as i32 > c),
             None => images.first().copied(),
         }
-        .unwrap_or(images[0])
     } else {
         match cur {
             Some(c) => images.iter().rev().copied().find(|&i| (i as i32) < c),
             None => images.last().copied(),
         }
-        .unwrap_or(images[images.len() - 1])
-    };
-    Some(target)
+    }
+}
+
+/// Whether `files` holds an image file other than the one already at `cur` — the
+/// condition that enables the Next / Previous Image actions. Unlike
+/// [`next_image_index`] this is direction-agnostic, so the actions stay enabled
+/// at either end of the list (where one direction has nowhere to go).
+fn other_image_exists(files: &[FileChange], cur: Option<usize>) -> bool {
+    files
+        .iter()
+        .enumerate()
+        .any(|(i, f)| is_image_path(&f.path) && Some(i) != cur)
 }
 
 /// Build the display row for a working-tree pseudo-entry in the log.
@@ -1635,7 +1634,7 @@ fn status_icon(status: ChangeStatus) -> SvgImage {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_trailer_line, next_image_index, with_signoff};
+    use super::{is_trailer_line, next_image_index, other_image_exists, with_signoff};
     use crate::backend::{ChangeStatus, FileChange};
 
     fn files(paths: &[&str]) -> Vec<FileChange> {
@@ -1650,20 +1649,38 @@ mod tests {
     }
 
     #[test]
-    fn next_image_navigates_only_images_and_wraps() {
+    fn next_image_navigates_only_images_without_wrapping() {
         // Images sit at indices 1, 3, 4; text files at 0 and 2.
         let f = files(&["a.txt", "logo.png", "notes.md", "icon.gif", "photo.jpeg"]);
-        // Forward / backward step image-to-image, wrapping past the ends.
+        // Forward / backward step image-to-image.
         assert_eq!(next_image_index(&f, Some(1), true), Some(3));
-        assert_eq!(next_image_index(&f, Some(4), true), Some(1));
-        assert_eq!(next_image_index(&f, Some(4), false), Some(3));
-        assert_eq!(next_image_index(&f, Some(1), false), Some(4));
+        assert_eq!(next_image_index(&f, Some(3), false), Some(1));
+        // …but stop at the ends rather than wrapping.
+        assert_eq!(next_image_index(&f, Some(4), true), None);
+        assert_eq!(next_image_index(&f, Some(1), false), None);
         // From a non-image row, jump to the nearest image in that direction.
         assert_eq!(next_image_index(&f, Some(2), true), Some(3));
         assert_eq!(next_image_index(&f, Some(2), false), Some(1));
         // No selection starts at the first / last image.
         assert_eq!(next_image_index(&f, None, true), Some(1));
         assert_eq!(next_image_index(&f, None, false), Some(4));
+    }
+
+    #[test]
+    fn other_image_exists_stays_true_at_the_ends() {
+        // Three images: navigation can't wrap, but the Next / Previous actions
+        // stay enabled at either end because the *other* direction still moves.
+        let f = files(&["a.txt", "logo.png", "notes.md", "icon.gif", "photo.jpeg"]);
+        assert!(other_image_exists(&f, Some(4)));
+        assert!(other_image_exists(&f, Some(1)));
+        // A lone image already selected leaves nowhere to go.
+        let one = files(&["a.txt", "logo.png"]);
+        assert!(!other_image_exists(&one, Some(1)));
+        // …but it's reachable from a non-image row, and from no selection.
+        assert!(other_image_exists(&one, Some(0)));
+        assert!(other_image_exists(&one, None));
+        // No images at all.
+        assert!(!other_image_exists(&files(&["a.txt", "b.rs"]), None));
     }
 
     #[test]
