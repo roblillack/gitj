@@ -20,6 +20,19 @@ While pre-1.0, the minor version is bumped for breaking changes.
   argument fails with usage help instead of being silently taken for a path.
   (#9)
 
+### Fixed
+
+- Selecting a huge merge commit no longer freezes the UI for up to a minute.
+  Two costs are now capped in the libgit2 backend: rename/copy detection is
+  skipped when the added × deleted candidate-pair product exceeds 100,000 —
+  its cost tracks that product, not the file count, so renames among a few
+  hundred files per side are still caught while a 4,000 × 3,500 merge isn't
+  allowed to take ~49s — and the rendered diff is cut off at 50,000 lines with
+  a trailing truncation marker instead of materializing millions of patch
+  lines nobody scrolls through. Skipped renames show as add/delete pairs, the
+  same fallback git's CLI uses past `diff.renameLimit`; the per-file lists
+  still show every changed file. (#12)
+
 ## [0.2.0] - 2026-06-08
 
 ### Added
