@@ -12,6 +12,23 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ### Added
 
+- Graphical image diffs: selecting a changed image (PNG, JPEG, GIF, WebP, BMP,
+  TIFF, …) now shows the two versions visually instead of a "Binary files
+  differ" line. Four comparison modes — 2-up side by side, a swipe split, an
+  onion-skin cross-fade, and a per-pixel difference heatmap — are switched
+  from the button row or the new View menu (Switch Mode, Ctrl+M), with a
+  slider driving the swipe/onion position; Before/After Image (Ctrl+Left /
+  Ctrl+Right) show just the old/new side full size, and Next/Previous Image
+  (Ctrl+N / Ctrl+P) step between the image files in the active list. Works in
+  both the browse and commit diff panes. Behind it, the backend gained
+  raw-blob access to both sides of a change, decoding goes through the `image`
+  crate, and the composed comparison canvas is cached and bulk-blitted to the
+  framebuffer via Saudade 0.5's new API. (#11)
+- More keyboard shortcuts: Ctrl+B / Ctrl+C switch between the Browse History
+  and Commit Changes screens — the active one is checkmarked in the View
+  menu — and Ctrl+U unstages the selected file. Ctrl+C only switches screens
+  from the browse view, so it stays available as copy while editing the
+  commit message. (#11)
 - `gitj --commit` (or `-c`) opens the commit screen right away instead of the
   history browser — for when the working tree is already in shape and the only
   reason to launch is to stage and commit. With it, argument handling grew into
