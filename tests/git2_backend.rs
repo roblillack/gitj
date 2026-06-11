@@ -303,3 +303,98 @@ fn branch_file_blobs_compare_base_and_tip() {
 
     fs::remove_dir_all(&dir).ok();
 }
+
+/// A commit with a diff far larger than the render cap is **truncated** rather
+/// than materialized in full — the regression guard for the merge-commit hang,
+/// where a 1.2M-line diff froze the UI for tens of seconds when selected.
+#[test]
+fn huge_diff_is_truncated() {
+    let dir = scratch_dir("git2-huge");
+    let repo = Repository::init(&dir).unwrap();
+    let sig = Signature::new("Tester", "tester@example.com", &Time::new(1_700_000_000, 0)).unwrap();
+
+    // A file with many more lines than the cap, committed from empty so the diff
+    // is one huge block of additions.
+    let big: String = (0..60_000).map(|n| format!("line {n}\n")).collect();
+    fs::write(dir.join("big.txt"), &big).unwrap();
+    commit_file(&repo, "big.txt", &sig, "add a huge file\n", &[]);
+
+    let backend = Git2Backend::open(dir.to_str().unwrap()).expect("open repo");
+    let diff = backend.commit_diff(0);
+
+    // Bounded (the cap is 50_000 lines + a trailing marker), not ~60_000.
+    assert!(
+        diff.lines.len() <= 50_001,
+        "diff should be truncated, got {} lines",
+        diff.lines.len()
+    );
+    assert!(diff.lines.len() > 1000, "but a real chunk is still shown");
+    assert!(
+        diff.lines.iter().any(|l| l.text.contains("truncated")),
+        "a truncation marker should be appended"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+/// Rename detection still runs for an ordinary (small) diff under the
+/// `added × deleted` gate: moving a file's content to a new path is reported as
+/// one Renamed change, not a separate add + delete.
+#[test]
+fn detects_a_rename_in_a_small_diff() {
+    let dir = scratch_dir("git2-rename");
+    let repo = Repository::init(&dir).unwrap();
+    let sig = Signature::new("Tester", "tester@example.com", &Time::new(1_700_000_000, 0)).unwrap();
+
+    let body: String = (0..40)
+        .map(|n| format!("the quick brown fox {n}\n"))
+        .collect();
+    fs::write(dir.join("old.txt"), &body).unwrap();
+    commit_file(&repo, "old.txt", &sig, "add old.txt\n", &[]);
+
+    // Rename: drop the old path, add the identical content under a new one.
+    fs::remove_file(dir.join("old.txt")).unwrap();
+    fs::write(dir.join("new.txt"), &body).unwrap();
+    {
+        let mut index = repo.index().unwrap();
+        index.remove_path(Path::new("old.txt")).unwrap();
+        index.add_path(Path::new("new.txt")).unwrap();
+        index.write().unwrap();
+    }
+    let head = repo.head().unwrap().peel_to_commit().unwrap().id();
+    commit_file(
+        &repo,
+        "new.txt",
+        &sig,
+        "rename old.txt -> new.txt\n",
+        &[head],
+    );
+
+    let backend = Git2Backend::open(dir.to_str().unwrap()).expect("open repo");
+    let files = backend.changed_files(0);
+    assert_eq!(files.len(), 1, "a rename is one change, got {files:?}");
+    assert_eq!(files[0].status, ChangeStatus::Renamed);
+    assert_eq!(files[0].path, "new.txt");
+    assert_eq!(files[0].old_path.as_deref(), Some("old.txt"));
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+/// An ordinary small diff is shown in full, with no truncation marker.
+#[test]
+fn small_diff_is_not_truncated() {
+    let dir = scratch_dir("git2-small");
+    let repo = Repository::init(&dir).unwrap();
+    let sig = Signature::new("Tester", "tester@example.com", &Time::new(1_700_000_000, 0)).unwrap();
+    fs::write(dir.join("a.txt"), "one\ntwo\nthree\n").unwrap();
+    commit_file(&repo, "a.txt", &sig, "add a.txt\n", &[]);
+
+    let backend = Git2Backend::open(dir.to_str().unwrap()).expect("open repo");
+    let diff = backend.commit_diff(0);
+    assert!(
+        !diff.lines.iter().any(|l| l.text.contains("truncated")),
+        "a small diff must not be truncated"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
