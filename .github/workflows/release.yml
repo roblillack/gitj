@@ -1,0 +1,21 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  github-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Strips the tag's `v` prefix, pulls the matching `## [X.Y.Z]` section
+      # out of CHANGELOG.md (via parse-changelog) and posts it as the release
+      # body. cargo-release pushes the tag, which triggers this workflow.
+      - uses: taiki-e/create-gh-release-action@v1
+        with:
+          changelog: CHANGELOG.md
+          token: ${{ secrets.GITHUB_TOKEN }}
