@@ -580,6 +580,51 @@ fn commit_mode_signoff() {
     );
 }
 
+// ----------------------------------------------------------- review screen
+
+/// Ctrl+3 switches to the review screen: every local and remote branch as a
+/// badge row with its tip commit's summary / author / date, the checked-out
+/// `main` pre-selected. main is the review base itself, so its file list is
+/// empty and the overview reports no changes.
+#[test]
+fn review_mode() {
+    snapshot_with_events(
+        "review_mode",
+        W,
+        H,
+        || Box::new(sample_client()),
+        || vec![ctrl_char('3')],
+    );
+}
+
+/// Arrow-down onto the feature branch: the file list fills with the
+/// aggregated changes of everything the branch contains, and the diff pane
+/// shows the branch overview — tip / base header plus the combined diff.
+#[test]
+fn review_mode_feature_branch() {
+    snapshot_with_events(
+        "review_mode_feature_branch",
+        W,
+        H,
+        || Box::new(sample_client()),
+        || vec![ctrl_char('3'), key(NamedKey::Down)],
+    );
+}
+
+/// Click a file row in the review file list: the diff pane narrows to that
+/// file's slice of the aggregated branch diff. The lower band starts at
+/// y = 252, so the second file row sits around y ≈ 280.
+#[test]
+fn review_mode_file_diff() {
+    snapshot_with_events(
+        "review_mode_file_diff",
+        W,
+        H,
+        || Box::new(sample_client()),
+        || vec![ctrl_char('3'), key(NamedKey::Down), click(100, 280)],
+    );
+}
+
 // --------------------------------------------------- log ↔ commit navigation
 
 /// Double-clicking the "Uncommitted changes" pseudo-row at the top of the log

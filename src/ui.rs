@@ -1,10 +1,12 @@
 //! The top-level [`GitClient`] widget.
 //!
-//! `GitClient` drives two screens, each a flat [`Shell`] of panes:
+//! `GitClient` drives three screens, each a flat [`Shell`] of panes:
 //!
 //! * **Browse** — the gitk-style history browser (commit list, diff, files).
 //! * **Commit** — a `git gui`-style staging screen (unstaged / staged file
 //!   lists, a per-file diff, a message editor and a commit button).
+//! * **Review** — a branch reviewer: every local and remote branch, with the
+//!   aggregated diff of all the changes the selected branch contains.
 //!
 //! saudade widgets are callback-free, so the cross-pane wiring is done here:
 //! after each event the active screen's selections (and a small command queue
@@ -21,8 +23,8 @@ use saudade::{
 };
 
 use crate::backend::{
-    BlobPair, ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, PartialMode,
-    RefKind, RepoBackend, WorkingStatus, build_partial_patch,
+    BlobPair, BranchInfo, ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange,
+    PartialMode, RefKind, RefLabel, RepoBackend, WorkingStatus, build_partial_patch,
 };
 use crate::imagediff::{ImageComparison, is_image_path};
 use crate::widgets::{
@@ -34,6 +36,8 @@ use crate::widgets::{
 const BROWSE_HISTORY_IDX: usize = 2;
 /// Direct-child index of the unstaged list in the commit shell.
 const COMMIT_UNSTAGED_IDX: usize = 2;
+/// Direct-child index of the branch list in the review shell.
+const REVIEW_BRANCHES_IDX: usize = 1;
 
 /// Sentinel commit ids for the working-tree pseudo-rows in the log graph
 /// (chosen so they never collide with a real 40-hex SHA).
@@ -50,6 +54,7 @@ enum Mode {
     #[default]
     Browse,
     Commit,
+    Review,
 }
 
 /// Which working-tree list a commit-mode selection came from, and which side
@@ -76,6 +81,7 @@ enum AppCommand {
     Reload,
     EnterCommitMode,
     EnterBrowseMode,
+    EnterReviewMode,
     Rescan,
     StageSelected,
     StageAll,
@@ -148,6 +154,12 @@ pub struct GitClient {
     /// buttons drop their text in narrow mode (see [`Self::apply_narrow`]).
     narrow: bool,
 
+    // ---- review screen ------------------------------------------------------
+    review_root: Shell,
+    branch_list: Rc<RefCell<CommitList>>,
+    review_file_list: Rc<RefCell<List>>,
+    review_diff_pane: Rc<RefCell<DiffPane>>,
+
     // ---- shared -----------------------------------------------------------
     dialog: Rc<RefCell<Dialog>>,
     commands: Rc<RefCell<Vec<AppCommand>>>,
@@ -168,6 +180,15 @@ pub struct GitClient {
     /// The log row whose detail the file/diff panes currently show.
     shown: Option<RowRef>,
     shown_file: Option<usize>,
+
+    // ---- review sync state --------------------------------------------------
+    /// The branches shown in the review list, aligned 1:1 with its rows.
+    branches: Vec<BranchInfo>,
+    /// The aggregated file changes of the branch the review panes show.
+    review_files: Vec<FileChange>,
+    /// The branch row whose detail the review file/diff panes currently show.
+    shown_branch: Option<usize>,
+    shown_review_file: Option<usize>,
 
     // ---- commit sync state ------------------------------------------------
     working: WorkingStatus,
@@ -215,6 +236,24 @@ impl GitClient {
             .add(Shared::new(commit_list.clone()), layout::browse_history)
             .add(Shared::new(file_list.clone()), layout::browse_files)
             .add(Shared::new(diff_pane.clone()), layout::browse_diff)
+            .add_overlay(Shared::new(dialog.clone()));
+
+        // Review-screen widgets. The branch list reuses `CommitList`: each row
+        // carries the branch name as a colored ref badge plus the tip commit's
+        // summary / author / date in the usual columns.
+        let branch_list = Rc::new(RefCell::new(CommitList::new(Rect::new(0, 0, 0, 0))));
+        let review_file_list = Rc::new(RefCell::new(List::new(Rect::new(0, 0, 0, 0))));
+        let review_diff_pane = Rc::new(RefCell::new(DiffPane::new(Rect::new(0, 0, 0, 0))));
+
+        let review_root = Shell::new()
+            .no_background()
+            .add(
+                build_browse_menu(commands.clone(), dialog.clone(), nav_state.clone(), scheme),
+                layout::review_menu,
+            )
+            .add(Shared::new(branch_list.clone()), layout::review_branches)
+            .add(Shared::new(review_file_list.clone()), layout::review_files)
+            .add(Shared::new(review_diff_pane.clone()), layout::review_diff)
             .add_overlay(Shared::new(dialog.clone()));
 
         // Commit-screen widgets.
@@ -303,6 +342,10 @@ impl GitClient {
             unstage_btn,
             rescan_btn,
             narrow: false,
+            review_root,
+            branch_list,
+            review_file_list,
+            review_diff_pane,
             dialog,
             commands,
             reopen: None,
@@ -313,6 +356,10 @@ impl GitClient {
             current_files: Vec::new(),
             shown: None,
             shown_file: None,
+            branches: Vec::new(),
+            review_files: Vec::new(),
+            shown_branch: None,
+            shown_review_file: None,
             working: WorkingStatus::default(),
             prev_unstaged_sel: None,
             prev_staged_sel: None,
@@ -337,10 +384,17 @@ impl GitClient {
         self.set_mode(Mode::Commit);
     }
 
+    /// Switch to the branch-review screen. Exposed for tests; at runtime the
+    /// View menu drives this through the command queue.
+    pub fn enter_review_mode(&mut self) {
+        self.set_mode(Mode::Review);
+    }
+
     fn active(&self) -> &Shell {
         match self.mode {
             Mode::Browse => &self.browse_root,
             Mode::Commit => &self.commit_root,
+            Mode::Review => &self.review_root,
         }
     }
 
@@ -348,6 +402,7 @@ impl GitClient {
         match self.mode {
             Mode::Browse => &mut self.browse_root,
             Mode::Commit => &mut self.commit_root,
+            Mode::Review => &mut self.review_root,
         }
     }
 
@@ -381,6 +436,12 @@ impl GitClient {
                 self.browse_root.layout(self.bounds);
                 self.browse_root.focus_child(BROWSE_HISTORY_IDX);
             }
+            Mode::Review => {
+                self.rebuild_branches();
+                self.sync_review(true);
+                self.review_root.layout(self.bounds);
+                self.review_root.focus_child(REVIEW_BRANCHES_IDX);
+            }
         }
         true
     }
@@ -394,6 +455,7 @@ impl GitClient {
                 AppCommand::Reload => self.reload(),
                 AppCommand::EnterCommitMode => self.set_mode(Mode::Commit),
                 AppCommand::EnterBrowseMode => self.set_mode(Mode::Browse),
+                AppCommand::EnterReviewMode => self.set_mode(Mode::Review),
                 AppCommand::Rescan => {
                     self.rescan();
                     true
@@ -434,6 +496,12 @@ impl GitClient {
         self.search.borrow_mut().clear();
         self.sync_browse(true);
         self.rescan();
+        // The branch list is rebuilt on every entry into review mode; only an
+        // on-screen review needs refreshing here.
+        if self.mode == Mode::Review {
+            self.rebuild_branches();
+            self.sync_review(true);
+        }
         true
     }
 
@@ -667,6 +735,118 @@ impl GitClient {
         blank(&mut lines);
 
         lines.extend(self.backend.commit_diff(idx).lines);
+        Diff { lines }
+    }
+
+    // ---- review screen ------------------------------------------------------
+
+    /// Re-read the branches from the backend and rebuild the review list's
+    /// rows. The selection defaults to the first row — the checked-out branch.
+    fn rebuild_branches(&mut self) {
+        self.branches = self.backend.branches();
+        let rows: Vec<CommitRow> = self.branches.iter().map(branch_row).collect();
+        let selected = if self.branches.is_empty() {
+            None
+        } else {
+            Some(0)
+        };
+        let mut list = self.branch_list.borrow_mut();
+        list.set_rows(rows);
+        list.set_selected(selected);
+    }
+
+    /// Reload review panes from the current selection state: when the selected
+    /// branch changes, reload its aggregated file list and overview diff, and
+    /// when the file selection changes, narrow the diff to that file.
+    fn sync_review(&mut self, force: bool) -> bool {
+        let mut changed = false;
+
+        // 1. On a branch change, reload the aggregated files and the overview.
+        let sel = self.branch_list.borrow().selected_index();
+        if force || sel != self.shown_branch {
+            self.shown_branch = sel;
+            self.review_files = sel
+                .and_then(|i| self.branches.get(i))
+                .map(|b| self.backend.branch_files(b))
+                .unwrap_or_default();
+            let items: Vec<ListItem> = self.review_files.iter().map(file_row).collect();
+            self.review_file_list.borrow_mut().set_items(items);
+            self.shown_review_file = None;
+            self.show_review_diff(sel, None);
+            changed = true;
+        }
+
+        // 2. Narrow the diff to a single file when one is selected.
+        let file_sel = self.review_file_list.borrow().selected_index();
+        if file_sel != self.shown_review_file {
+            self.shown_review_file = file_sel;
+            self.show_review_diff(self.shown_branch, file_sel);
+            changed = true;
+        }
+
+        changed
+    }
+
+    /// Update the review diff pane for a branch selection: a graphical image
+    /// comparison when a single image file is selected, otherwise the text diff
+    /// (the whole-branch overview when no single file is picked).
+    fn show_review_diff(&self, sel: Option<usize>, file_sel: Option<usize>) {
+        let branch = sel.and_then(|i| self.branches.get(i));
+        let file = file_sel.and_then(|f| self.review_files.get(f));
+        if let (Some(branch), Some(file)) = (branch, file)
+            && is_image_path(&file.path)
+            && let Some(cmp) =
+                ImageComparison::from_blobs(&self.backend.branch_file_blobs(branch, &file.path))
+        {
+            self.review_diff_pane.borrow_mut().show_image(cmp);
+            return;
+        }
+        let diff = match (branch, file) {
+            (Some(branch), Some(file)) => self.backend.branch_file_diff(branch, &file.path),
+            (Some(branch), None) => self.branch_detail(branch),
+            _ => Diff::default(),
+        };
+        self.review_diff_pane.borrow_mut().set_diff(diff);
+    }
+
+    /// Build the overview shown when a branch (and no single file) is
+    /// selected: a metadata header naming the branch, its tip and the review
+    /// base, then the aggregated diff of everything the branch contains — the
+    /// branch analogue of [`Self::commit_detail`].
+    fn branch_detail(&self, branch: &BranchInfo) -> Diff {
+        let mut lines = Vec::new();
+        let header = |lines: &mut Vec<DiffLine>, text: String| {
+            lines.push(DiffLine::new(DiffLineKind::CommitHeader, text));
+        };
+        match &branch.upstream {
+            Some(upstream) => header(&mut lines, format!("branch {} = {upstream}", branch.name)),
+            None => header(&mut lines, format!("branch {}", branch.name)),
+        }
+        header(
+            &mut lines,
+            format!("Tip:    {} {}", short(&branch.tip_id), branch.summary),
+        );
+        match &branch.base_id {
+            Some(id) => header(
+                &mut lines,
+                format!("Base:   {} @ {}", branch.base_name, short(id)),
+            ),
+            None => header(
+                &mut lines,
+                format!("Base:   none ({} shares no history)", branch.base_name),
+            ),
+        }
+        lines.push(DiffLine::new(DiffLineKind::Context, String::new()));
+
+        let diff = self.backend.branch_diff(branch);
+        if diff.is_empty() {
+            lines.push(DiffLine::new(
+                DiffLineKind::Meta,
+                format!("No changes relative to {}.", branch.base_name),
+            ));
+        } else {
+            lines.extend(diff.lines);
+        }
         Diff { lines }
     }
 
@@ -1073,6 +1253,7 @@ impl GitClient {
         match self.mode {
             Mode::Browse => self.diff_pane.clone(),
             Mode::Commit => self.commit_diff_pane.clone(),
+            Mode::Review => self.review_diff_pane.clone(),
         }
     }
 
@@ -1104,6 +1285,10 @@ impl GitClient {
                 let sel = self.file_list.borrow().selected_index();
                 other_image_exists(&self.current_files, sel)
             }
+            Mode::Review => {
+                let sel = self.review_file_list.borrow().selected_index();
+                other_image_exists(&self.review_files, sel)
+            }
             Mode::Commit => match self.active_commit_side() {
                 Side::Unstaged => other_image_exists(
                     &self.working.unstaged,
@@ -1127,6 +1312,16 @@ impl GitClient {
                     return false;
                 };
                 self.file_list.borrow_mut().set_selected(Some(target));
+                true
+            }
+            Mode::Review => {
+                let sel = self.review_file_list.borrow().selected_index();
+                let Some(target) = next_image_index(&self.review_files, sel, forward) else {
+                    return false;
+                };
+                self.review_file_list
+                    .borrow_mut()
+                    .set_selected(Some(target));
                 true
             }
             Mode::Commit => {
@@ -1219,6 +1414,7 @@ impl Widget for GitClient {
         dirty |= match self.mode {
             Mode::Browse => self.sync_browse(false),
             Mode::Commit => self.sync_commit(),
+            Mode::Review => self.sync_review(false),
         };
         // Keep the View-menu image actions' enable state current for the next
         // paint (e.g. when the menu is about to open).
@@ -1245,6 +1441,7 @@ impl Widget for GitClient {
         self.apply_narrow(bounds.w <= layout::NARROW_W);
         self.browse_root.layout(bounds);
         self.commit_root.layout(bounds);
+        self.review_root.layout(bounds);
     }
 
     fn focus_first(&mut self) -> bool {
@@ -1253,6 +1450,7 @@ impl Widget for GitClient {
             // so arrow keys navigate history immediately (gitk behavior).
             Mode::Browse => self.browse_root.focus_child(BROWSE_HISTORY_IDX),
             Mode::Commit => self.commit_root.focus_child(COMMIT_UNSTAGED_IDX),
+            Mode::Review => self.review_root.focus_child(REVIEW_BRANCHES_IDX),
         }
     }
 
@@ -1265,8 +1463,9 @@ impl Widget for GitClient {
     }
 }
 
-/// Build the browse-screen menu bar: File ▸ Reload / Exit, View ▸ the
-/// Browse / Commit mode switches + the image-diff actions, Help ▸ About.
+/// Build the browse-screen menu bar: File ▸ Reload / Exit, View ▸ the mode
+/// switches + the image-diff actions, Help ▸ About. The review screen carries
+/// no actions of its own, so it uses this same bar.
 fn build_browse_menu(
     commands: Rc<RefCell<Vec<AppCommand>>>,
     dialog: Rc<RefCell<Dialog>>,
@@ -1332,12 +1531,13 @@ fn build_commit_menu(
         .add_menu(Menu::new("&Help", vec![about_item(&dialog)]))
 }
 
-/// The View-menu mode switches, shared by both screens: Browse History and
-/// Commit Changes, each checkmarked when its screen is the active one (read live
-/// from `nav`). Picking the entry that's already checked is a harmless no-op, so
-/// both stay enabled. The accelerators are Ctrl+1 / Ctrl+2 — view switching à la
-/// GitHub Desktop — deliberately clear of every editing chord (Ctrl+C must stay
-/// copy in the commit message editor), so no fall-through gating is needed.
+/// The View-menu mode switches, shared by every screen: Browse History, Commit
+/// Changes and Review Branches, each checkmarked when its screen is the active
+/// one (read live from `nav`). Picking the entry that's already checked is a
+/// harmless no-op, so all stay enabled. The accelerators are Ctrl+1 / Ctrl+2 /
+/// Ctrl+3 — view switching à la GitHub Desktop — deliberately clear of every
+/// editing chord (Ctrl+C must stay copy in the commit message editor), so no
+/// fall-through gating is needed.
 fn mode_items(
     commands: &Rc<RefCell<Vec<AppCommand>>>,
     nav: &Rc<RefCell<MenuNav>>,
@@ -1353,6 +1553,9 @@ fn mode_items(
         cmd_item("&Commit Changes", commands, AppCommand::EnterCommitMode)
             .with_accel("Ctrl+2")
             .with_checked(is_mode(Mode::Commit)),
+        cmd_item("&Review Branches", commands, AppCommand::EnterReviewMode)
+            .with_accel("Ctrl+3")
+            .with_checked(is_mode(Mode::Review)),
     ]
 }
 
@@ -1549,6 +1752,32 @@ fn commit_matches(commit: &CommitInfo, query: &str) -> bool {
             .refs
             .iter()
             .any(|r| r.name.to_lowercase().contains(query))
+}
+
+/// Build a review-list row from a branch: the branch name as a colored ref
+/// badge (the same colors the log's labels use), then the tip commit's
+/// summary, author and date in the usual columns. A remote-tracking upstream
+/// folded into this row (same tip, see [`BranchInfo::upstream`]) appears as a
+/// second badge.
+fn branch_row(branch: &BranchInfo) -> CommitRow {
+    let mut refs = vec![RefLabel {
+        name: branch.name.clone(),
+        kind: branch.kind,
+    }];
+    if let Some(upstream) = &branch.upstream {
+        refs.push(RefLabel {
+            name: upstream.clone(),
+            kind: RefKind::RemoteBranch,
+        });
+    }
+    CommitRow {
+        id: branch.tip_id.clone(),
+        parents: Vec::new(),
+        summary: branch.summary.clone(),
+        refs,
+        author: branch.author.clone(),
+        date: branch.short_date_string(),
+    }
 }
 
 /// Build a commit-list row from a commit: ref badges + summary on the left,
@@ -1874,5 +2103,79 @@ mod commit_focus_tests {
         client.sync_commit();
         assert!(client.cycle_image_mode());
         assert!(client.show_image_side(true));
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    use crate::backend::FixtureBackend;
+
+    fn review_client() -> GitClient {
+        let mut client = GitClient::new(Rc::new(FixtureBackend::sample()));
+        client.enter_review_mode();
+        client
+    }
+
+    #[test]
+    fn entering_review_mode_lists_branches_and_selects_the_head_branch() {
+        let client = review_client();
+        assert_eq!(client.branches.len(), 3);
+        assert_eq!(client.branches[0].kind, RefKind::Head);
+        assert_eq!(client.branch_list.borrow().selected_index(), Some(0));
+        // main is in sync with its tracked origin/main: one row for the two.
+        assert_eq!(client.branches[0].upstream.as_deref(), Some("origin/main"));
+        assert!(!client.branches.iter().any(|b| b.name == "origin/main"));
+        // main is the review base itself: no files of its own, but the diff
+        // pane still shows the branch overview header.
+        assert!(client.review_files.is_empty());
+        assert!(!client.review_diff_pane.borrow().is_empty());
+    }
+
+    #[test]
+    fn branch_row_shows_the_synced_upstream_as_a_second_badge() {
+        let client = review_client();
+        // main folds its in-sync origin/main: the row carries both badges.
+        let folded = branch_row(&client.branches[0]);
+        let badges: Vec<(&str, RefKind)> = folded
+            .refs
+            .iter()
+            .map(|r| (r.name.as_str(), r.kind))
+            .collect();
+        assert_eq!(
+            badges,
+            [
+                ("main", RefKind::Head),
+                ("origin/main", RefKind::RemoteBranch)
+            ]
+        );
+        // A branch without a synced upstream keeps a single badge.
+        assert_eq!(branch_row(&client.branches[1]).refs.len(), 1);
+    }
+
+    #[test]
+    fn selecting_a_feature_branch_shows_its_aggregated_changes() {
+        let mut client = review_client();
+        let feature = client
+            .branches
+            .iter()
+            .position(|b| b.kind == RefKind::LocalBranch)
+            .expect("the sample fixture has a local feature branch");
+
+        client.branch_list.borrow_mut().set_selected(Some(feature));
+        assert!(client.sync_review(false));
+
+        let paths: Vec<&str> = client
+            .review_files
+            .iter()
+            .map(|f| f.path.as_str())
+            .collect();
+        assert_eq!(paths, ["assets/status/added.svg", "src/widgets/list.rs"]);
+        assert!(!client.review_diff_pane.borrow().is_empty());
+
+        // Selecting a file narrows the diff to it.
+        client.review_file_list.borrow_mut().set_selected(Some(1));
+        assert!(client.sync_review(false));
+        assert_eq!(client.shown_review_file, Some(1));
     }
 }

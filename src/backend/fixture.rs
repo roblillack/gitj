@@ -8,8 +8,8 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use super::{
-    BlobPair, ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, RefKind,
-    RefLabel, RepoBackend, WorkingStatus,
+    BlobPair, BranchInfo, ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange,
+    RefKind, RefLabel, RepoBackend, WorkingStatus,
 };
 
 /// A file changed by a commit, paired with the diff that produced it.
@@ -35,6 +35,9 @@ pub struct FixtureBackend {
     path: String,
     commits: Vec<CommitInfo>,
     files: HashMap<usize, Vec<FileEntry>>,
+    /// Branches for review mode, each carrying the aggregated files its
+    /// review shows, in the order they were added.
+    branches: Vec<(BranchInfo, Vec<FileEntry>)>,
     /// The simulated working tree, mutated by stage/unstage/commit.
     working: RefCell<Vec<WorkingEntry>>,
     /// Paths from the HEAD commit the user has pulled out of an in-progress
@@ -52,6 +55,7 @@ impl FixtureBackend {
             path: path.into(),
             commits: Vec::new(),
             files: HashMap::new(),
+            branches: Vec::new(),
             working: RefCell::new(Vec::new()),
             amend_removed: RefCell::new(HashSet::new()),
             last_commit: RefCell::new(None),
@@ -69,6 +73,14 @@ impl FixtureBackend {
     /// changes that an amend would re-commit.
     fn head_files(&self) -> &[FileEntry] {
         self.files.get(&0).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// The aggregated file entries of the branch named like `branch`.
+    fn branch_entries(&self, branch: &BranchInfo) -> Option<&[FileEntry]> {
+        self.branches
+            .iter()
+            .find(|(info, _)| info.name == branch.name)
+            .map(|(_, entries)| entries.as_slice())
     }
 
     /// Append a commit and the files it touched.
@@ -127,6 +139,13 @@ impl FixtureBackend {
             staged,
             blobs: BlobPair { old, new },
         });
+        self
+    }
+
+    /// Add a branch and the aggregated files its review-mode diff shows
+    /// (for review-mode tests/demos).
+    pub fn add_branch(&mut self, info: BranchInfo, files: Vec<FileEntry>) -> &mut Self {
+        self.branches.push((info, files));
         self
     }
 
@@ -407,6 +426,102 @@ impl FixtureBackend {
             ],
         );
 
+        // Branches for review mode. `main` is in sync with its tracked
+        // `origin/main`, so the two fold into one row; the feature branch
+        // carries an aggregated diff of everything it contains; the
+        // remote-only branch (an already-merged ancestor of main) reviews as
+        // empty.
+        be.add_branch(
+            BranchInfo {
+                name: "main".into(),
+                kind: RefKind::Head,
+                tip_id: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678".into(),
+                summary: "Add commit DAG graph view".into(),
+                author: "Robert Lillack".into(),
+                time_seconds: 1_716_500_000,
+                time_offset_minutes: 120,
+                upstream: Some("origin/main".into()),
+                base_name: "main".into(),
+                base_id: Some("a1b2c3d4e5f60718293a4b5c6d7e8f9012345678".into()),
+            },
+            vec![],
+        );
+        be.add_branch(
+            BranchInfo {
+                name: "feature/list-icons".into(),
+                kind: RefKind::LocalBranch,
+                tip_id: "f60718293a4b5c6d7e8f90123456789ab2c3d4e5".into(),
+                summary: "Bake SVG status markers".into(),
+                author: "Robert Lillack".into(),
+                time_seconds: 1_716_450_000,
+                time_offset_minutes: 120,
+                upstream: None,
+                base_name: "main".into(),
+                base_id: Some("c3d4e5f60718293a4b5c6d7e8f90123456789ab2".into()),
+            },
+            vec![
+                file_entry(
+                    "assets/status/added.svg",
+                    None,
+                    ChangeStatus::Added,
+                    &[
+                        (
+                            DiffLineKind::FileHeader,
+                            "diff --git a/assets/status/added.svg b/assets/status/added.svg",
+                        ),
+                        (DiffLineKind::FileHeader, "new file mode 100644"),
+                        (DiffLineKind::HunkHeader, "@@ -0,0 +1,2 @@"),
+                        (DiffLineKind::Addition, "+<svg viewBox=\"0 0 12 12\">"),
+                        (DiffLineKind::Addition, "+  <rect rx=\"2\" fill=\"#2A2\"/>"),
+                    ],
+                ),
+                file_entry(
+                    "src/widgets/list.rs",
+                    None,
+                    ChangeStatus::Modified,
+                    &[
+                        (
+                            DiffLineKind::FileHeader,
+                            "diff --git a/src/widgets/list.rs b/src/widgets/list.rs",
+                        ),
+                        (
+                            DiffLineKind::HunkHeader,
+                            "@@ -12,5 +12,6 @@ impl ListItem {",
+                        ),
+                        (
+                            DiffLineKind::Context,
+                            "     pub fn new(text: &str) -> Self {",
+                        ),
+                        (
+                            DiffLineKind::Deletion,
+                            "-        Self { text: text.into() }",
+                        ),
+                        (
+                            DiffLineKind::Addition,
+                            "+        Self { text: text.into(), icon: None }",
+                        ),
+                        (DiffLineKind::Context, "     }"),
+                        (DiffLineKind::Context, " }"),
+                    ],
+                ),
+            ],
+        );
+        be.add_branch(
+            BranchInfo {
+                name: "origin/font-rename".into(),
+                kind: RefKind::RemoteBranch,
+                tip_id: "d4e5f60718293a4b5c6d7e8f90123456789ab2c3".into(),
+                summary: "Rename boldFont() -> bold_font()".into(),
+                author: "Robert Lillack".into(),
+                time_seconds: 1_716_200_000,
+                time_offset_minutes: 120,
+                upstream: None,
+                base_name: "main".into(),
+                base_id: Some("d4e5f60718293a4b5c6d7e8f90123456789ab2c3".into()),
+            },
+            vec![],
+        );
+
         be
     }
 }
@@ -440,6 +555,33 @@ impl RepoBackend for FixtureBackend {
     fn file_diff(&self, index: usize, path: &str) -> Diff {
         self.files
             .get(&index)
+            .and_then(|entries| entries.iter().find(|e| e.change.path == path))
+            .map(|e| e.diff.clone())
+            .unwrap_or_default()
+    }
+
+    fn branches(&self) -> Vec<BranchInfo> {
+        self.branches.iter().map(|(info, _)| info.clone()).collect()
+    }
+
+    fn branch_files(&self, branch: &BranchInfo) -> Vec<FileChange> {
+        self.branch_entries(branch)
+            .map(|entries| entries.iter().map(|e| e.change.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    fn branch_diff(&self, branch: &BranchInfo) -> Diff {
+        let mut lines = Vec::new();
+        if let Some(entries) = self.branch_entries(branch) {
+            for entry in entries {
+                lines.extend(entry.diff.lines.iter().cloned());
+            }
+        }
+        Diff { lines }
+    }
+
+    fn branch_file_diff(&self, branch: &BranchInfo, path: &str) -> Diff {
+        self.branch_entries(branch)
             .and_then(|entries| entries.iter().find(|e| e.change.path == path))
             .map(|e| e.diff.clone())
             .unwrap_or_default()

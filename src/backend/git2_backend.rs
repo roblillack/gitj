@@ -1,13 +1,15 @@
 //! The live [`RepoBackend`] backed by `git2` / libgit2.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use git2::{Commit, Delta, DiffFormat, DiffLineType, DiffOptions, Oid, Repository, Sort};
+use git2::{
+    BranchType, Commit, Delta, DiffFormat, DiffLineType, DiffOptions, Oid, Repository, Sort,
+};
 
 use super::{
-    BlobPair, ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, RefKind,
-    RefLabel, RepoBackend, WorkingStatus,
+    BlobPair, BranchInfo, ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange,
+    RefKind, RefLabel, RepoBackend, WorkingStatus,
 };
 
 /// Cap on the rename/copy-detection workload, in candidate pairs. `find_similar`
@@ -83,23 +85,7 @@ impl Git2Backend {
             .repo
             .diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), Some(&mut opts))
             .ok()?;
-        // Detect renames/copies so statuses and headers are accurate — but only
-        // when the similarity matrix is small enough to stay cheap. Its cost is
-        // ~O(added × deletes), so gate on that product rather than the total
-        // file count (see [`MAX_RENAME_PAIRS`]); a huge merge would otherwise
-        // hang the UI. Counts are taken before detection, so they're the raw
-        // add/delete candidate pool.
-        let (mut added, mut deleted) = (0usize, 0usize);
-        for delta in diff.deltas() {
-            match delta.status() {
-                Delta::Added => added += 1,
-                Delta::Deleted => deleted += 1,
-                _ => {}
-            }
-        }
-        if added.saturating_mul(deleted) <= MAX_RENAME_PAIRS {
-            let _ = diff.find_similar(None);
-        }
+        detect_renames(&mut diff);
         Some(diff)
     }
 
@@ -123,6 +109,111 @@ impl Git2Backend {
     fn blob_in_workdir(&self, path: &str) -> Option<Vec<u8>> {
         let workdir = self.repo.workdir()?;
         std::fs::read(workdir.join(path)).ok()
+    }
+
+    /// The branch every review diff is measured against — the repository's
+    /// default branch: the remote's declared default (`origin/HEAD`) when
+    /// known, otherwise `main` / `master`, preferring a local branch over its
+    /// remote-tracking ref; the checked-out branch as a last resort. Returns
+    /// the display name and the tip commit id.
+    fn review_base(&self) -> Option<(String, Oid)> {
+        let remote_default = self
+            .repo
+            .find_reference("refs/remotes/origin/HEAD")
+            .ok()
+            .and_then(|r| r.symbolic_target().map(str::to_string))
+            .and_then(|t| t.strip_prefix("refs/remotes/origin/").map(str::to_string));
+        let mut candidates: Vec<&str> = Vec::new();
+        if let Some(name) = remote_default.as_deref() {
+            candidates.push(name);
+        }
+        for name in ["main", "master"] {
+            if !candidates.contains(&name) {
+                candidates.push(name);
+            }
+        }
+        for name in candidates {
+            if let Ok(branch) = self.repo.find_branch(name, BranchType::Local)
+                && let Ok(tip) = branch.get().peel_to_commit()
+            {
+                return Some((name.to_string(), tip.id()));
+            }
+            let remote_name = format!("origin/{name}");
+            if let Ok(branch) = self.repo.find_branch(&remote_name, BranchType::Remote)
+                && let Ok(tip) = branch.get().peel_to_commit()
+            {
+                return Some((remote_name, tip.id()));
+            }
+        }
+        let head = self.repo.head().ok()?;
+        let name = head.shorthand().unwrap_or("HEAD").to_string();
+        let tip = head.peel_to_commit().ok()?;
+        Some((name, tip.id()))
+    }
+
+    /// Assemble one review-list entry from a branch's tip commit, computing
+    /// its merge base with the review base branch.
+    fn branch_info(
+        &self,
+        name: String,
+        kind: RefKind,
+        tip: &Commit,
+        upstream: Option<String>,
+        base_name: &str,
+        base_oid: Oid,
+    ) -> BranchInfo {
+        let base_id = self
+            .repo
+            .merge_base(base_oid, tip.id())
+            .ok()
+            .map(|oid| oid.to_string());
+        let author = tip.author();
+        BranchInfo {
+            name,
+            kind,
+            tip_id: tip.id().to_string(),
+            summary: tip.summary().unwrap_or("").to_string(),
+            author: author.name().unwrap_or("").to_string(),
+            time_seconds: author.when().seconds(),
+            time_offset_minutes: author.when().offset_minutes(),
+            upstream,
+            base_name: base_name.to_string(),
+            base_id,
+        }
+    }
+
+    /// The two trees a branch review compares: the merge base (`None` for an
+    /// unrelated history, read as the empty tree) and the branch tip.
+    fn branch_trees(
+        &self,
+        branch: &BranchInfo,
+    ) -> Option<(Option<git2::Tree<'_>>, git2::Tree<'_>)> {
+        let tip_oid = Oid::from_str(&branch.tip_id).ok()?;
+        let tip = self.repo.find_commit(tip_oid).ok()?.tree().ok()?;
+        let base = branch
+            .base_id
+            .as_deref()
+            .and_then(|id| Oid::from_str(id).ok())
+            .and_then(|oid| self.repo.find_commit(oid).ok())
+            .and_then(|c| c.tree().ok());
+        Some((base, tip))
+    }
+
+    /// Build a libgit2 diff of everything `branch` contains (review base →
+    /// tip), optionally restricted to a single path.
+    fn build_branch_diff(&self, branch: &BranchInfo, path: Option<&str>) -> Option<git2::Diff<'_>> {
+        let (base, tip) = self.branch_trees(branch)?;
+        let mut opts = DiffOptions::new();
+        opts.context_lines(3);
+        if let Some(path) = path {
+            opts.pathspec(path);
+        }
+        let mut diff = self
+            .repo
+            .diff_tree_to_tree(base.as_ref(), Some(&tip), Some(&mut opts))
+            .ok()?;
+        detect_renames(&mut diff);
+        Some(diff)
     }
 
     /// The tree the staged side is diffed against: `HEAD`'s tree normally, or
@@ -183,6 +274,109 @@ impl RepoBackend for Git2Backend {
             .and_then(|p| p.tree().ok())
             .and_then(|t| self.blob_in_tree(&t, path));
         BlobPair { old, new }
+    }
+
+    fn branches(&self) -> Vec<BranchInfo> {
+        let Some((base_name, base_oid)) = self.review_base() else {
+            return Vec::new();
+        };
+        let mut branches = Vec::new();
+        // Remote-tracking branches folded into their local's row; collected
+        // over the locals so the remote pass below can skip them.
+        let mut folded: HashSet<String> = HashSet::new();
+
+        if let Ok(iter) = self.repo.branches(Some(BranchType::Local)) {
+            for (branch, _) in iter.flatten() {
+                let Ok(Some(name)) = branch.name() else {
+                    continue;
+                };
+                let name = name.to_string();
+                let Ok(tip) = branch.get().peel_to_commit() else {
+                    continue;
+                };
+                let kind = if branch.is_head() {
+                    RefKind::Head
+                } else {
+                    RefKind::LocalBranch
+                };
+                // A tracked upstream sitting at the same tip folds into this
+                // row; a diverged one reviews differently and keeps its own.
+                let upstream = branch.upstream().ok().and_then(|u| {
+                    let uname = u.name().ok().flatten()?.to_string();
+                    let utip = u.get().peel_to_commit().ok()?.id();
+                    (utip == tip.id()).then_some(uname)
+                });
+                if let Some(uname) = &upstream {
+                    folded.insert(uname.clone());
+                }
+                branches.push(self.branch_info(name, kind, &tip, upstream, &base_name, base_oid));
+            }
+        }
+        if let Ok(iter) = self.repo.branches(Some(BranchType::Remote)) {
+            for (branch, _) in iter.flatten() {
+                let Ok(Some(name)) = branch.name() else {
+                    continue;
+                };
+                // Skip the synthetic origin/HEAD pointer (as the log's labels
+                // do) and the remotes already folded into a local's row.
+                if name.ends_with("/HEAD") || folded.contains(name) {
+                    continue;
+                }
+                let name = name.to_string();
+                let Ok(tip) = branch.get().peel_to_commit() else {
+                    continue;
+                };
+                branches.push(self.branch_info(
+                    name,
+                    RefKind::RemoteBranch,
+                    &tip,
+                    None,
+                    &base_name,
+                    base_oid,
+                ));
+            }
+        }
+        // Checked-out branch first, then locals, then remotes, by name within.
+        branches.sort_by(|a, b| {
+            let rank = |k: RefKind| match k {
+                RefKind::Head | RefKind::DetachedHead => 0,
+                RefKind::LocalBranch => 1,
+                _ => 2,
+            };
+            rank(a.kind).cmp(&rank(b.kind)).then(a.name.cmp(&b.name))
+        });
+        branches
+    }
+
+    fn branch_files(&self, branch: &BranchInfo) -> Vec<FileChange> {
+        let Some(diff) = self.build_branch_diff(branch, None) else {
+            return Vec::new();
+        };
+        diff.deltas()
+            .map(|delta| file_change_from_delta(&delta))
+            .collect()
+    }
+
+    fn branch_diff(&self, branch: &BranchInfo) -> Diff {
+        self.build_branch_diff(branch, None)
+            .map(render_diff)
+            .unwrap_or_default()
+    }
+
+    fn branch_file_diff(&self, branch: &BranchInfo, path: &str) -> Diff {
+        self.build_branch_diff(branch, Some(path))
+            .map(render_diff)
+            .unwrap_or_default()
+    }
+
+    fn branch_file_blobs(&self, branch: &BranchInfo, path: &str) -> BlobPair {
+        let Some((base, tip)) = self.branch_trees(branch) else {
+            return BlobPair::default();
+        };
+        BlobPair {
+            old: base.as_ref().and_then(|t| self.blob_in_tree(t, path)),
+            new: self.blob_in_tree(&tip, path),
+        }
     }
 
     fn working_file_blobs(&self, path: &str, staged: bool, amend: bool) -> BlobPair {
@@ -509,6 +703,26 @@ fn status_from_delta(delta: Delta) -> ChangeStatus {
         Delta::Typechange => ChangeStatus::TypeChange,
         Delta::Untracked => ChangeStatus::Untracked,
         _ => ChangeStatus::Other,
+    }
+}
+
+/// Detect renames/copies so statuses and headers are accurate — but only when
+/// the similarity matrix is small enough to stay cheap. Its cost is
+/// ~O(added × deletes), so gate on that product rather than the total file
+/// count (see [`MAX_RENAME_PAIRS`]); a huge merge would otherwise hang the UI.
+/// Counts are taken before detection, so they're the raw add/delete candidate
+/// pool.
+fn detect_renames(diff: &mut git2::Diff) {
+    let (mut added, mut deleted) = (0usize, 0usize);
+    for delta in diff.deltas() {
+        match delta.status() {
+            Delta::Added => added += 1,
+            Delta::Deleted => deleted += 1,
+            _ => {}
+        }
+    }
+    if added.saturating_mul(deleted) <= MAX_RENAME_PAIRS {
+        let _ = diff.find_similar(None);
     }
 }
 

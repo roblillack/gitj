@@ -219,6 +219,53 @@ impl CommitInfo {
     }
 }
 
+/// A local or remote branch, as listed by review mode.
+///
+/// A branch is reviewed as the aggregated diff of everything it contains:
+/// from its merge base with the repository's default branch (`base_name`,
+/// the same base a pull request would diff against) up to its tip. The tip
+/// commit's summary/author/date fill the branch list's columns.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BranchInfo {
+    /// Short name: `main`, `feature/x`, `origin/main`.
+    pub name: String,
+    /// [`RefKind::Head`] for the checked-out branch, otherwise
+    /// [`RefKind::LocalBranch`] / [`RefKind::RemoteBranch`].
+    pub kind: RefKind,
+    /// Full SHA of the branch's tip commit.
+    pub tip_id: String,
+    /// Summary line of the tip commit.
+    pub summary: String,
+    /// Author of the tip commit.
+    pub author: String,
+    /// Tip commit author time, seconds since the Unix epoch.
+    pub time_seconds: i64,
+    /// Tip commit timezone offset in minutes east of UTC.
+    pub time_offset_minutes: i32,
+    /// The branch's remote-tracking upstream (e.g. `origin/main`) when it
+    /// sits at the same tip: the two are one line in the review list, this
+    /// row carrying both names, instead of the remote being listed
+    /// separately. `None` for remote branches, untracked locals, and locals
+    /// that have diverged from their upstream (the remote then keeps its own
+    /// row, since it reviews differently).
+    pub upstream: Option<String>,
+    /// Name of the branch the review diff is measured against — the
+    /// repository's default branch (e.g. `main`).
+    pub base_name: String,
+    /// The merge base with `base_name`, i.e. the diff base. `None` when the
+    /// histories are unrelated; the branch then diffs against the empty tree,
+    /// so everything it contains reads as added.
+    pub base_id: Option<String>,
+}
+
+impl BranchInfo {
+    /// Short tip date `2026-05-29 23:10` for the branch list row.
+    pub fn short_date_string(&self) -> String {
+        let full = format_git_time(self.time_seconds, self.time_offset_minutes);
+        full.get(..16).unwrap_or(&full).to_string()
+    }
+}
+
 /// The interface the UI layer depends on. Implemented by the live
 /// [`Git2Backend`] and the in-memory [`FixtureBackend`].
 pub trait RepoBackend {
@@ -244,6 +291,45 @@ pub trait RepoBackend {
     /// pair, so backends without blob access simply never offer an image diff.
     fn commit_file_blobs(&self, index: usize, path: &str) -> BlobPair {
         let _ = (index, path);
+        BlobPair::default()
+    }
+
+    // ---- review mode (branches) ------------------------------------------
+
+    /// All local and remote branches for review mode's branch list: the
+    /// checked-out branch first, then the remaining local branches, then the
+    /// remote-tracking ones, each group sorted by name. A remote-tracking
+    /// branch whose local tracks it *and* sits at the same tip is folded into
+    /// the local's row (see [`BranchInfo::upstream`]) rather than listed
+    /// twice. The default is empty, for backends without branch access.
+    fn branches(&self) -> Vec<BranchInfo> {
+        Vec::new()
+    }
+
+    /// Files changed by everything `branch` contains: the aggregated diff
+    /// from the branch's review base (see [`BranchInfo::base_id`]) to its tip.
+    fn branch_files(&self, branch: &BranchInfo) -> Vec<FileChange> {
+        let _ = branch;
+        Vec::new()
+    }
+
+    /// Unified diff of everything `branch` contains, against its review base.
+    fn branch_diff(&self, branch: &BranchInfo) -> Diff {
+        let _ = branch;
+        Diff::default()
+    }
+
+    /// Unified diff for a single file within `branch`'s aggregated diff.
+    fn branch_file_diff(&self, branch: &BranchInfo, path: &str) -> Diff {
+        let _ = (branch, path);
+        Diff::default()
+    }
+
+    /// Raw bytes of a file's two sides in `branch`'s aggregated diff — the
+    /// review base's copy (`old`) versus the tip's (`new`); the binary/image
+    /// analogue of [`branch_file_diff`](Self::branch_file_diff).
+    fn branch_file_blobs(&self, branch: &BranchInfo, path: &str) -> BlobPair {
+        let _ = (branch, path);
         BlobPair::default()
     }
 
