@@ -10,6 +10,26 @@ use super::{
     RepoBackend, WorkingStatus,
 };
 
+/// Cap on the rename/copy-detection workload, in candidate pairs. `find_similar`
+/// builds an O(added × deleted) content-similarity matrix, so its cost tracks
+/// that product — **not** the total number of changed files: a modification-only
+/// commit is cheap at any size, while an add/delete-heavy one is costly even when
+/// smaller (a 4240-file all-additions commit detects in ~0.1ms; an 8157-file
+/// merge with ~4100 adds × ~3500 deletes took ~49s and froze the UI). Past this
+/// many pairs we skip rename detection so a big merge can't hang the UI; ~100k
+/// keeps the matching well under a second while still catching renames among a
+/// few hundred files on each side. The cost of skipping is that renames in such
+/// a diff show as add/delete pairs (git's CLI does the same past
+/// `diff.renameLimit`).
+const MAX_RENAME_PAIRS: usize = 100_000;
+
+/// Cap on the number of lines [`render_diff`] emits for one diff. A pathological
+/// commit (again, a big merge) can produce well over a million patch lines;
+/// materializing them all freezes the UI for tens of seconds and wastes memory
+/// on a diff no one scrolls through. Past the cap the diff is truncated with a
+/// trailing marker; the per-file lists still show every changed file.
+const MAX_DIFF_LINES: usize = 50_000;
+
 /// Opens a repository and reads commits/diffs through libgit2.
 pub struct Git2Backend {
     path: String,
@@ -63,8 +83,23 @@ impl Git2Backend {
             .repo
             .diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), Some(&mut opts))
             .ok()?;
-        // Detect renames/copies so statuses and headers are accurate.
-        let _ = diff.find_similar(None);
+        // Detect renames/copies so statuses and headers are accurate — but only
+        // when the similarity matrix is small enough to stay cheap. Its cost is
+        // ~O(added × deletes), so gate on that product rather than the total
+        // file count (see [`MAX_RENAME_PAIRS`]); a huge merge would otherwise
+        // hang the UI. Counts are taken before detection, so they're the raw
+        // add/delete candidate pool.
+        let (mut added, mut deleted) = (0usize, 0usize);
+        for delta in diff.deltas() {
+            match delta.status() {
+                Delta::Added => added += 1,
+                Delta::Deleted => deleted += 1,
+                _ => {}
+            }
+        }
+        if added.saturating_mul(deleted) <= MAX_RENAME_PAIRS {
+            let _ = diff.find_similar(None);
+        }
         Some(diff)
     }
 
@@ -426,7 +461,14 @@ fn status_from_delta(delta: Delta) -> ChangeStatus {
 /// a real unified diff even before color is applied.
 fn render_diff(diff: git2::Diff) -> Diff {
     let mut lines = Vec::new();
+    let mut truncated = false;
     let _ = diff.print(DiffFormat::Patch, |_delta, _hunk, line| {
+        // Stop once the cap is hit: returning `false` aborts libgit2's patch
+        // generation, so the remaining (huge) diff is never materialized.
+        if lines.len() >= MAX_DIFF_LINES {
+            truncated = true;
+            return false;
+        }
         let content = String::from_utf8_lossy(line.content());
         let content = content.trim_end_matches('\n');
         match line.origin_value() {
@@ -452,6 +494,14 @@ fn render_diff(diff: git2::Diff) -> Diff {
         }
         true
     });
+    if truncated {
+        lines.push(DiffLine::new(
+            DiffLineKind::Meta,
+            format!(
+                "\u{2026} diff truncated at {MAX_DIFF_LINES} lines — too large to display in full"
+            ),
+        ));
+    }
     Diff { lines }
 }
 
