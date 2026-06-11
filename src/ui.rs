@@ -256,9 +256,14 @@ impl GitClient {
             .add(Shared::new(review_diff_pane.clone()), layout::review_diff)
             .add_overlay(Shared::new(dialog.clone()));
 
-        // Commit-screen widgets.
-        let unstaged_list = Rc::new(RefCell::new(List::new(Rect::new(0, 0, 0, 0))));
-        let staged_list = Rc::new(RefCell::new(List::new(Rect::new(0, 0, 0, 0))));
+        // Commit-screen widgets. The file lists are multi-selection so a
+        // Ctrl/Shift+click can gather several files to stage or unstage at once.
+        let unstaged_list = Rc::new(RefCell::new(
+            List::new(Rect::new(0, 0, 0, 0)).with_multi_select(true),
+        ));
+        let staged_list = Rc::new(RefCell::new(
+            List::new(Rect::new(0, 0, 0, 0)).with_multi_select(true),
+        ));
         let unstaged_heading = Rc::new(RefCell::new(Heading::new("Unstaged Changes")));
         let staged_heading = Rc::new(RefCell::new(Heading::new("Staged Changes")));
         let commit_diff_pane = Rc::new(RefCell::new(DiffPane::new(Rect::new(0, 0, 0, 0))));
@@ -858,10 +863,13 @@ impl GitClient {
     }
 
     /// Re-read the working tree and rebuild the staged / unstaged lists. When
-    /// `prefer` names a `(side, path)` that survives the rescan, that file stays
-    /// selected (so partial staging keeps the same file focused in the diff);
-    /// otherwise the selection defaults to the first file.
-    fn rescan_selecting(&mut self, prefer: Option<(Side, String)>) {
+    /// `prefer` names a `(side, path, index)` whose path survives the rescan,
+    /// that file stays selected (so partial staging keeps the same file focused
+    /// in the diff). When the path is gone — fully staged or unstaged away —
+    /// the row now at its old index is selected instead, clamped to the list's
+    /// new end: the next file in the same list. Without a preference, or when
+    /// that side emptied, the selection defaults to the first file.
+    fn rescan_selecting(&mut self, prefer: Option<(Side, String, usize)>) {
         let amend = self.amend_check.borrow().is_checked();
         self.working = self.backend.working_status(amend);
 
@@ -885,14 +893,19 @@ impl GitClient {
             view.set_diff(Diff::default());
         }
 
-        // Keep the preferred file selected when it's still present; otherwise
-        // default to the first file so the diff pane isn't blank.
-        let target = prefer.and_then(|(side, path)| {
+        // Keep the preferred file selected when it's still present; when it
+        // left the list, the row that took its place (or the new last row);
+        // otherwise default to the first file so the diff pane isn't blank.
+        let target = prefer.and_then(|(side, path, index)| {
             let files = match side {
                 Side::Unstaged => &self.working.unstaged,
                 Side::Staged => &self.working.staged,
             };
-            files.iter().position(|f| f.path == path).map(|i| (side, i))
+            files
+                .iter()
+                .position(|f| f.path == path)
+                .or_else(|| (!files.is_empty()).then(|| index.min(files.len() - 1)))
+                .map(|i| (side, i))
         });
         match target {
             Some((side, i)) => self.apply_commit_selection(side, i),
@@ -904,18 +917,25 @@ impl GitClient {
         }
     }
 
-    /// Select file `i` in the `side` list, clear the other list's selection,
-    /// and show that file's diff.
+    /// Programmatically select file `i` in the `side` list — replacing any
+    /// multi-selection — and show its diff.
     fn apply_commit_selection(&mut self, side: Side, i: usize) {
         match side {
-            Side::Unstaged => {
-                self.unstaged_list.borrow_mut().set_selected(Some(i));
-                self.staged_list.borrow_mut().set_selected(None);
-            }
-            Side::Staged => {
-                self.staged_list.borrow_mut().set_selected(Some(i));
-                self.unstaged_list.borrow_mut().set_selected(None);
-            }
+            Side::Unstaged => self.unstaged_list.borrow_mut().set_selected(Some(i)),
+            Side::Staged => self.staged_list.borrow_mut().set_selected(Some(i)),
+        }
+        self.show_commit_diff(side, i);
+    }
+
+    /// Show file `i` of the `side` list in the diff pane and clear the *other*
+    /// list's selection (only one side ever holds it). `side`'s own — possibly
+    /// multi-row — selection is left untouched: this is the path a user click
+    /// takes, and a Ctrl/Shift+click that moved the lead must not collapse the
+    /// rows it just gathered.
+    fn show_commit_diff(&mut self, side: Side, i: usize) {
+        match side {
+            Side::Unstaged => self.staged_list.borrow_mut().set_selected(None),
+            Side::Staged => self.unstaged_list.borrow_mut().set_selected(None),
         }
         self.prev_unstaged_sel = self.unstaged_list.borrow().selected_index();
         self.prev_staged_sel = self.staged_list.borrow().selected_index();
@@ -964,12 +984,14 @@ impl GitClient {
 
         let unstaged_activated = self.unstaged_list.borrow_mut().take_activated();
         if let Some(i) = unstaged_activated {
-            self.stage_index(i);
+            let targets = activation_targets(&self.unstaged_list.borrow(), i);
+            self.stage_indices(&targets);
             return true;
         }
         let staged_activated = self.staged_list.borrow_mut().take_activated();
         if let Some(i) = staged_activated {
-            self.unstage_index(i);
+            let targets = activation_targets(&self.staged_list.borrow(), i);
+            self.unstage_indices(&targets);
             return true;
         }
 
@@ -978,13 +1000,13 @@ impl GitClient {
         if let Some(i) = u
             && self.prev_unstaged_sel != Some(i)
         {
-            self.apply_commit_selection(Side::Unstaged, i);
+            self.show_commit_diff(Side::Unstaged, i);
             return true;
         }
         if let Some(i) = s
             && self.prev_staged_sel != Some(i)
         {
-            self.apply_commit_selection(Side::Staged, i);
+            self.show_commit_diff(Side::Staged, i);
             return true;
         }
         // A selection may have been cleared elsewhere — keep trackers honest.
@@ -1010,14 +1032,12 @@ impl GitClient {
     }
 
     fn stage_selected(&mut self) -> bool {
-        let sel = self.unstaged_list.borrow().selected_index();
-        match sel {
-            Some(i) => {
-                self.stage_index(i);
-                true
-            }
-            None => false,
+        let sel: Vec<usize> = self.unstaged_list.borrow().selected_indices().to_vec();
+        if sel.is_empty() {
+            return false;
         }
+        self.stage_indices(&sel);
+        true
     }
 
     /// Stage every unstaged file (git gui's "Stage Changed Files To Commit").
@@ -1063,35 +1083,61 @@ impl GitClient {
     }
 
     fn unstage_selected(&mut self) -> bool {
-        let sel = self.staged_list.borrow().selected_index();
-        match sel {
-            Some(i) => {
-                self.unstage_index(i);
-                true
-            }
-            None => false,
+        let sel: Vec<usize> = self.staged_list.borrow().selected_indices().to_vec();
+        if sel.is_empty() {
+            return false;
         }
+        self.unstage_indices(&sel);
+        true
     }
 
-    fn stage_index(&mut self, i: usize) {
-        if let Some(file) = self.working.unstaged.get(i) {
-            let path = file.path.clone();
-            if let Err(e) = self.backend.stage(&path) {
+    /// Stage the unstaged-list rows at `indices` (one for a double-click, the
+    /// whole multi-selection for the Stage button / Ctrl+T), then highlight the
+    /// file that follows the first staged one (see [`Self::rescan_selecting`]).
+    fn stage_indices(&mut self, indices: &[usize]) {
+        let paths: Vec<String> = indices
+            .iter()
+            .filter_map(|&i| self.working.unstaged.get(i))
+            .map(|f| f.path.clone())
+            .collect();
+        for path in &paths {
+            if let Err(e) = self.backend.stage(path) {
                 self.dialog.borrow_mut().show_error("Stage failed", &e);
+                break;
             }
         }
-        self.rescan();
+        let prefer = indices.iter().copied().min().and_then(|i| {
+            self.working
+                .unstaged
+                .get(i)
+                .map(|f| (Side::Unstaged, f.path.clone(), i))
+        });
+        self.rescan_selecting(prefer);
     }
 
-    fn unstage_index(&mut self, i: usize) {
-        if let Some(file) = self.working.staged.get(i) {
-            let path = file.path.clone();
-            let amend = self.amend_check.borrow().is_checked();
-            if let Err(e) = self.backend.unstage(&path, amend) {
+    /// Unstage the staged-list rows at `indices`, then highlight the file that
+    /// follows the first unstaged one — the staged-side mirror of
+    /// [`Self::stage_indices`].
+    fn unstage_indices(&mut self, indices: &[usize]) {
+        let amend = self.amend_check.borrow().is_checked();
+        let paths: Vec<String> = indices
+            .iter()
+            .filter_map(|&i| self.working.staged.get(i))
+            .map(|f| f.path.clone())
+            .collect();
+        for path in &paths {
+            if let Err(e) = self.backend.unstage(path, amend) {
                 self.dialog.borrow_mut().show_error("Unstage failed", &e);
+                break;
             }
         }
-        self.rescan();
+        let prefer = indices.iter().copied().min().and_then(|i| {
+            self.working
+                .staged
+                .get(i)
+                .map(|f| (Side::Staged, f.path.clone(), i))
+        });
+        self.rescan_selecting(prefer);
     }
 
     /// The file whose diff the commit screen is currently showing, as
@@ -1145,8 +1191,9 @@ impl GitClient {
             self.dialog.borrow_mut().show_error(title, &e);
         }
         // Keep the same file focused on the same side so the user can stage the
-        // next chunk without the selection jumping back to the first file.
-        self.rescan_selecting(Some((side, path)));
+        // next chunk without the selection jumping back to the first file. When
+        // this was the file's last chunk the next file takes the focus instead.
+        self.rescan_selecting(Some((side, path, i)));
         true
     }
 
@@ -1801,6 +1848,20 @@ pub fn file_row(file: &FileChange) -> ListItem {
     ListItem::new(file.display()).with_svg_icon(status_icon(file.status))
 }
 
+/// The rows a list activation (double-click or Enter) acts on: the whole
+/// multi-selection when the activated row is part of it — Enter fires on the
+/// lead of a Ctrl/Shift-gathered group — else just the activated row. (A
+/// double-click always collapses the selection to its own row first, so it
+/// stays a single-file gesture.)
+fn activation_targets(list: &List, activated: usize) -> Vec<usize> {
+    let sel = list.selected_indices();
+    if sel.contains(&activated) {
+        sel.to_vec()
+    } else {
+        vec![activated]
+    }
+}
+
 /// The compile-time-baked status marker for a [`ChangeStatus`] — a small chip
 /// carrying the letter [`ChangeStatus::badge`] would print. Each SVG lives in
 /// `assets/status/`; `include_svg!` flattens it to polygons at build time, so no
@@ -1827,8 +1888,11 @@ fn status_icon(status: ChangeStatus) -> SvgImage {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_trailer_line, next_image_index, other_image_exists, with_signoff};
+    use super::{
+        activation_targets, is_trailer_line, next_image_index, other_image_exists, with_signoff,
+    };
     use crate::backend::{ChangeStatus, FileChange};
+    use saudade::{List, ListItem, Rect};
 
     fn files(paths: &[&str]) -> Vec<FileChange> {
         paths
@@ -1933,6 +1997,17 @@ mod tests {
         assert!(!is_trailer_line("Fixes: #123"));
         assert!(!is_trailer_line(""));
     }
+
+    #[test]
+    fn activation_acts_on_the_selection_only_when_it_covers_the_row() {
+        let mut l = List::new(Rect::new(0, 0, 100, 100)).with_multi_select(true);
+        l.set_items((0..5).map(|i| ListItem::new(format!("f{i}"))).collect());
+        l.set_selected_indices([1, 3]);
+        // Enter fires on the lead of a gathered group — the group acts together.
+        assert_eq!(activation_targets(&l, 3), vec![1, 3]);
+        // A row outside the selection acts alone.
+        assert_eq!(activation_targets(&l, 2), vec![2]);
+    }
 }
 
 #[cfg(test)]
@@ -2028,6 +2103,99 @@ mod commit_focus_tests {
         assert_eq!(client.staged_list.borrow().selected_index(), None);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A fixture-backed commit-mode client whose simulated working tree holds
+    /// three files, either all unstaged or all staged — the stage for the
+    /// selection-after-staging tests.
+    fn three_files_client(staged: bool) -> GitClient {
+        let mut be = crate::backend::FixtureBackend::new("/tmp/journey-multi");
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            be.add_working(
+                name,
+                ChangeStatus::Modified,
+                staged,
+                &[(DiffLineKind::Addition, "+x")],
+            );
+        }
+        let mut client = GitClient::new(Rc::new(be));
+        client.enter_commit_mode();
+        client
+    }
+
+    /// Staging a file removes it from the unstaged list; the file that
+    /// followed it takes over the selection instead of it snapping back to
+    /// the first row.
+    #[test]
+    fn staging_a_file_highlights_the_next_one() {
+        let mut client = three_files_client(false);
+        client.apply_commit_selection(Side::Unstaged, 1); // b.txt
+        assert!(client.stage_selected());
+
+        let unstaged: Vec<&str> = client
+            .working
+            .unstaged
+            .iter()
+            .map(|f| f.path.as_str())
+            .collect();
+        assert_eq!(unstaged, ["a.txt", "c.txt"]);
+        // c.txt moved up into b.txt's old row and holds the selection.
+        assert_eq!(client.unstaged_list.borrow().selected_index(), Some(1));
+    }
+
+    /// Staging the last file has no next row to move to — the new last file
+    /// keeps the selection in the same list.
+    #[test]
+    fn staging_the_last_file_highlights_the_new_last_one() {
+        let mut client = three_files_client(false);
+        client.apply_commit_selection(Side::Unstaged, 2); // c.txt
+        assert!(client.stage_selected());
+
+        assert_eq!(client.working.unstaged.len(), 2);
+        assert_eq!(client.unstaged_list.borrow().selected_index(), Some(1)); // b.txt
+    }
+
+    /// A Ctrl-click-gathered multi-selection stages every selected file in one
+    /// go; the one file left over takes the selection.
+    #[test]
+    fn multi_selection_stages_every_selected_file() {
+        let mut client = three_files_client(false);
+        client
+            .unstaged_list
+            .borrow_mut()
+            .set_selected_indices([0, 2]);
+        assert!(client.stage_selected());
+
+        let staged: Vec<&str> = client
+            .working
+            .staged
+            .iter()
+            .map(|f| f.path.as_str())
+            .collect();
+        assert_eq!(staged, ["a.txt", "c.txt"]);
+        let unstaged: Vec<&str> = client
+            .working
+            .unstaged
+            .iter()
+            .map(|f| f.path.as_str())
+            .collect();
+        assert_eq!(unstaged, ["b.txt"]);
+        assert_eq!(client.unstaged_list.borrow().selected_index(), Some(0));
+    }
+
+    /// Unstaging mirrors staging: the selection stays in the *staged* list, on
+    /// the file that followed the removed one — it does not jump across to the
+    /// unstaged list the file just landed in.
+    #[test]
+    fn unstaging_highlights_the_next_staged_file() {
+        let mut client = three_files_client(true);
+        client.apply_commit_selection(Side::Staged, 0); // a.txt
+        assert!(client.unstage_selected());
+
+        assert!(client.working.unstaged.iter().any(|f| f.path == "a.txt"));
+        // b.txt moved up into a.txt's old row and holds the selection.
+        assert_eq!(client.staged_list.borrow().selected_index(), Some(0));
+        assert_eq!(client.unstaged_list.borrow().selected_index(), None);
     }
 
     /// A tiny solid-color PNG, just enough that `ImageComparison` decodes it.

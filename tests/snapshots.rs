@@ -502,7 +502,9 @@ fn commit_mode_amend() {
 /// Amend, then pull an already-committed file back *out* of the commit:
 /// after ticking Amend the HEAD file (`src/widgets/graph.rs`) shows up
 /// staged; selecting it and clicking Unstage moves it to the unstaged list,
-/// dropping it from the amended commit.
+/// dropping it from the amended commit. The selection stays in the staged
+/// list, on the row that took the removed file's place (here the new last
+/// row, `Cargo.toml`), whose diff fills the right pane.
 #[test]
 fn commit_mode_amend_unstage() {
     snapshot_with_events(

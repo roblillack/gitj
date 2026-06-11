@@ -57,6 +57,30 @@ fn release(x: i32, y: i32) -> Event {
     }
 }
 
+/// A Ctrl+click — the gesture that gathers an extra row into a list's
+/// multi-selection.
+fn ctrl_click(x: i32, y: i32) -> Event {
+    Event::PointerDown {
+        pos: Point::new(x, y),
+        button: MouseButton::Left,
+        modifiers: Modifiers {
+            control: true,
+            ..Modifiers::default()
+        },
+    }
+}
+
+fn ctrl_release(x: i32, y: i32) -> Event {
+    Event::PointerUp {
+        pos: Point::new(x, y),
+        button: MouseButton::Left,
+        modifiers: Modifiers {
+            control: true,
+            ..Modifiers::default()
+        },
+    }
+}
+
 fn type_text(w: &mut dyn Widget, backend: &MockBackend, s: &str) {
     for ch in s.chars() {
         backend.dispatch(
@@ -114,6 +138,26 @@ fn ctrl_t_stages_the_selected_unstaged_file() {
         "Ctrl+T should stage the selected file, got {ws:?}"
     );
     assert!(!ws.unstaged.iter().any(|f| f.path == "src/ui.rs"));
+}
+
+#[test]
+fn ctrl_click_gathers_files_and_ctrl_t_stages_them_together() {
+    let (be, backend, mut w) = commit_client();
+    assert_eq!(be.working_status(false).unstaged.len(), 2);
+
+    // Row 0 (src/ui.rs) is auto-selected on entry; Ctrl+click gathers row 1
+    // (notes.md, at y = 42 + 18·row in the upper-left list) without dropping
+    // row 0 from the selection.
+    backend.dispatch(w.as_mut(), &ctrl_click(60, 65));
+    backend.dispatch(w.as_mut(), &ctrl_release(60, 65));
+
+    backend.dispatch(w.as_mut(), &ctrl_char('t'));
+
+    let ws = be.working_status(false);
+    assert!(
+        ws.unstaged.is_empty(),
+        "Ctrl+T should stage every gathered file, got {ws:?}"
+    );
 }
 
 #[test]

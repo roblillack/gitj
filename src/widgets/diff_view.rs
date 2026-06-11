@@ -764,9 +764,8 @@ mod tests {
     /// context lines that the view can actually scroll.
     fn long_staged_view() -> (MockBackend, DiffView) {
         let mut diff = sample();
-        diff.lines.extend(
-            (0..40).map(|i| DiffLine::new(DiffLineKind::Context, format!(" pad {i}"))),
-        );
+        diff.lines
+            .extend((0..40).map(|i| DiffLine::new(DiffLineKind::Context, format!(" pad {i}"))));
         let be = MockBackend::new(W, H).with_scale(1.0);
         let mut dv = DiffView::new(Rect::new(0, 0, W, H));
         dv.set_mode(DiffMode::Stage);
