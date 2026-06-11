@@ -12,6 +12,18 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ### Added
 
+- Branch review mode: a third screen (View ▸ Review Branches, Ctrl+3) lists
+  every local and remote-tracking branch — the checked-out one first, and a
+  remote folded into its local's row when both sit at the same tip — each with
+  its tip commit's summary, author and date. Selecting a branch reviews
+  everything it contains: the aggregated diff from its merge base with the
+  repository's default branch (the remote's declared default when known,
+  otherwise main/master) to its tip, so commits the default branch gained
+  since the branch point don't show up as noise. The file list narrows the
+  diff to a single file, and changed images get the graphical image diff here
+  as well. Review diffs share the huge-diff safeguards: rename detection is
+  skipped past the candidate-pair cap and rendering truncates at 50,000
+  lines. (#10)
 - Graphical image diffs: selecting a changed image (PNG, JPEG, GIF, WebP, BMP,
   TIFF, …) now shows the two versions visually instead of a "Binary files
   differ" line. Four comparison modes — 2-up side by side, a swipe split, an
@@ -24,11 +36,10 @@ While pre-1.0, the minor version is bumped for breaking changes.
   raw-blob access to both sides of a change, decoding goes through the `image`
   crate, and the composed comparison canvas is cached and bulk-blitted to the
   framebuffer via Saudade 0.5's new API. (#11)
-- More keyboard shortcuts: Ctrl+B / Ctrl+C switch between the Browse History
-  and Commit Changes screens — the active one is checkmarked in the View
-  menu — and Ctrl+U unstages the selected file. Ctrl+C only switches screens
-  from the browse view, so it stays available as copy while editing the
-  commit message. (#11)
+- More keyboard shortcuts: Ctrl+1 / Ctrl+2 / Ctrl+3 switch between the Browse
+  History, Commit Changes and Review Branches screens — the active one is
+  checkmarked in the View menu — and Ctrl+U unstages the selected file.
+  (#10, #11)
 - `gitj --commit` (or `-c`) opens the commit screen right away instead of the
   history browser — for when the working tree is already in shape and the only
   reason to launch is to stage and commit. With it, argument handling grew into
