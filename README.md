@@ -10,6 +10,9 @@ A gitk-style repository browser and commit helper built on the
 ```
 gitj            # browse the repository containing the current directory
 gitj /path/repo # browse the repository at (or above) a given path
+gitj -c         # open straight onto the commit (staging) screen
+gitj --version  # print the version and exit
+gitj --help     # print usage and exit
 ```
 
 Git Journey has two screens — the gitk-style **browse** (history) screen and the
