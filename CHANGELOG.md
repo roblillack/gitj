@@ -48,6 +48,13 @@ While pre-1.0, the minor version is bumped for breaking changes.
   argument fails with usage help instead of being silently taken for a path.
   (#9)
 
+### Changed
+
+- The history browser now shows only commits reachable from the checked-out
+  branch, like plain `gitk`, instead of walking every local branch,
+  remote-tracking branch and tag. Other refs that point into the visible
+  history still decorate their commits' rows. (#13)
+
 ### Fixed
 
 - Selecting a huge merge commit no longer freezes the UI for up to a minute.
