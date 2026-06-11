@@ -10,6 +10,21 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ## [Unreleased] - ReleaseDate
 
+### Added
+
+- Multi-selection in the commit screen's file lists: Ctrl/Cmd+click toggles a
+  file in and out of the selection, Shift+click (or Shift+Arrow) selects a
+  range, and the Stage/Unstage buttons, their menu items (Ctrl+T / Ctrl+U) and
+  Enter act on every selected file at once. (#16)
+
+### Changed
+
+- Staging or unstaging a file no longer snaps the selection back to the first
+  file: the next file in the same list (or the new last one) is highlighted
+  instead, so working through a list of changes file by file doesn't lose your
+  place. Partially staging a file's last remaining chunk moves on the same way.
+  (#16)
+
 ## [0.3.0] - 2026-06-11
 
 ### Added
