@@ -20,7 +20,25 @@ categories = ["gui", "development-tools"]
 # `assets/status/*.svg` are baked by `include_svg!` at *build* time, including
 # the downstream build of the published crate, so they must travel in the
 # package or a fresh `cargo install gitj` would fail to compile.
-include = ["src/**/*.rs", "assets/status/*.svg", "Cargo.toml", "README.md", "LICENSE"]
+include = ["src/**/*.rs", "assets/status/*.svg", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE"]
+
+# cargo-release settings. Single crate, no workspace, so everything lives here
+# (unlike saudade, which splits the workspace-wide defaults into release.toml).
+[package.metadata.release]
+# Only ever cut a release from `main`.
+allow-branch = ["main"]
+pre-release-replacements = [
+    # Roll CHANGELOG's [Unreleased] over to the new version and re-seed a fresh
+    # [Unreleased] above it (the Keep a Changelog + cargo-release marker idiom).
+    # Order matters: the version/date/compare substitutions run first, *then*
+    # the markers re-insert the literal "Unreleased"/"ReleaseDate" tokens so the
+    # next release finds them again.
+    { file = "CHANGELOG.md", search = "Unreleased", replace = "{{version}}" },
+    { file = "CHANGELOG.md", search = '\.\.\.HEAD', replace = "...{{tag_name}}", exactly = 1 },
+    { file = "CHANGELOG.md", search = "ReleaseDate", replace = "{{date}}" },
+    { file = "CHANGELOG.md", search = "<!-- next-header -->", replace = "<!-- next-header -->\n\n## [Unreleased] - ReleaseDate", exactly = 1 },
+    { file = "CHANGELOG.md", search = "<!-- next-url -->", replace = "<!-- next-url -->\n[Unreleased]: https://github.com/roblillack/gitj/compare/{{tag_name}}...HEAD", exactly = 1 },
+]
 
 [dependencies]
 saudade = "0.4"
