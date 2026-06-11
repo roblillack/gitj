@@ -285,6 +285,23 @@ fn branch_review_diffs_against_the_merge_base() {
 }
 
 #[test]
+fn commit_list_walks_only_the_checked_out_branch() {
+    let (dir, _repo, _base, _tip) = branchy_repo();
+    let backend = Git2Backend::open(dir.to_str().unwrap()).expect("open repo");
+
+    // main is checked out, so only its three commits show — like plain
+    // `gitk`, the feature branch's history stays out of the browser.
+    let summaries: Vec<&str> = backend
+        .commits()
+        .iter()
+        .map(|c| c.summary.as_str())
+        .collect();
+    assert_eq!(summaries, ["main moves on", "add binary", "base commit"]);
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn branch_file_blobs_compare_base_and_tip() {
     let (dir, _repo, _base, _tip) = branchy_repo();
     let backend = Git2Backend::open(dir.to_str().unwrap()).expect("open repo");

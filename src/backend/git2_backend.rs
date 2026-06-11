@@ -639,21 +639,16 @@ fn collect_refs(repo: &Repository) -> Result<HashMap<Oid, Vec<RefLabel>>, git2::
     Ok(map)
 }
 
-/// Run a reverse-topological, newest-first revwalk from every ref tip and
-/// build a [`CommitInfo`] per commit.
+/// Run a reverse-topological, newest-first revwalk from HEAD and build a
+/// [`CommitInfo`] per commit.
 fn load_commits(
     repo: &Repository,
     refs: &HashMap<Oid, Vec<RefLabel>>,
 ) -> Result<Vec<CommitInfo>, git2::Error> {
     let mut revwalk = repo.revwalk()?;
     revwalk.set_sorting(Sort::TIME | Sort::TOPOLOGICAL)?;
-    // Show history reachable from all branches/tags, not just HEAD, so the
-    // browser behaves like `gitk --all`.
-    if revwalk.push_glob("refs/heads/*").is_err() {
-        let _ = revwalk.push_head();
-    }
-    let _ = revwalk.push_glob("refs/remotes/*");
-    let _ = revwalk.push_glob("refs/tags/*");
+    // Show only history reachable from HEAD, like plain `gitk`. An unborn
+    // HEAD (empty repo) fails to push; tolerate it and yield no commits.
     let _ = revwalk.push_head();
 
     let mut commits = Vec::new();
