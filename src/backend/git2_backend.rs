@@ -85,23 +85,7 @@ impl Git2Backend {
             .repo
             .diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), Some(&mut opts))
             .ok()?;
-        // Detect renames/copies so statuses and headers are accurate — but only
-        // when the similarity matrix is small enough to stay cheap. Its cost is
-        // ~O(added × deletes), so gate on that product rather than the total
-        // file count (see [`MAX_RENAME_PAIRS`]); a huge merge would otherwise
-        // hang the UI. Counts are taken before detection, so they're the raw
-        // add/delete candidate pool.
-        let (mut added, mut deleted) = (0usize, 0usize);
-        for delta in diff.deltas() {
-            match delta.status() {
-                Delta::Added => added += 1,
-                Delta::Deleted => deleted += 1,
-                _ => {}
-            }
-        }
-        if added.saturating_mul(deleted) <= MAX_RENAME_PAIRS {
-            let _ = diff.find_similar(None);
-        }
+        detect_renames(&mut diff);
         Some(diff)
     }
 
@@ -228,7 +212,7 @@ impl Git2Backend {
             .repo
             .diff_tree_to_tree(base.as_ref(), Some(&tip), Some(&mut opts))
             .ok()?;
-        let _ = diff.find_similar(None);
+        detect_renames(&mut diff);
         Some(diff)
     }
 
@@ -719,6 +703,26 @@ fn status_from_delta(delta: Delta) -> ChangeStatus {
         Delta::Typechange => ChangeStatus::TypeChange,
         Delta::Untracked => ChangeStatus::Untracked,
         _ => ChangeStatus::Other,
+    }
+}
+
+/// Detect renames/copies so statuses and headers are accurate — but only when
+/// the similarity matrix is small enough to stay cheap. Its cost is
+/// ~O(added × deletes), so gate on that product rather than the total file
+/// count (see [`MAX_RENAME_PAIRS`]); a huge merge would otherwise hang the UI.
+/// Counts are taken before detection, so they're the raw add/delete candidate
+/// pool.
+fn detect_renames(diff: &mut git2::Diff) {
+    let (mut added, mut deleted) = (0usize, 0usize);
+    for delta in diff.deltas() {
+        match delta.status() {
+            Delta::Added => added += 1,
+            Delta::Deleted => deleted += 1,
+            _ => {}
+        }
+    }
+    if added.saturating_mul(deleted) <= MAX_RENAME_PAIRS {
+        let _ = diff.find_similar(None);
     }
 }
 
