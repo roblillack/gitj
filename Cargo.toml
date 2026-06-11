@@ -1,6 +1,6 @@
 [package]
 name = "gitj"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.88"
 description = "A gitk-style, Windows 3.1-flavored git repository browser and commit helper built on the Saudade toolkit"
