@@ -324,6 +324,15 @@ impl Widget for CommitList {
             self.v_scrollbar.event(event, ctx);
             return;
         }
+        // The wheel scrolls the list whenever the pointer is anywhere over
+        // it — not just over the scrollbar gutter — without disturbing the
+        // selection, matching native list boxes.
+        if let Event::Scroll { pos, .. } = event {
+            if self.rect.contains(*pos) {
+                self.v_scrollbar.event(event, ctx);
+            }
+            return;
+        }
         if let Some(pos) = event.position()
             && self.v_scrollbar.rect().contains(pos)
         {
@@ -523,4 +532,58 @@ fn draw_badge(
     let label_y = row_y + (ROW_HEIGHT - font_size as i32) / 2 - 1;
     painter.text(x + 4, label_y, label, font_size, Color::BLACK);
     bw
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use saudade::mock::MockBackend;
+
+    const W: i32 = 320;
+    const H: i32 = 200;
+
+    fn scroll(x: i32, y: i32, delta_y: f32) -> Event {
+        Event::Scroll {
+            pos: Point::new(x, y),
+            delta_x: 0.0,
+            delta_y,
+        }
+    }
+
+    /// A list with more rows than fit, so it can actually scroll.
+    fn long_list() -> (MockBackend, CommitList) {
+        let rows = (0..40)
+            .map(|i| CommitRow {
+                id: format!("{i:040x}"),
+                summary: format!("commit {i}"),
+                ..CommitRow::default()
+            })
+            .collect();
+        let be = MockBackend::new(W, H).with_scale(1.0);
+        let mut list = CommitList::new(Rect::new(0, 0, W, H)).with_rows(rows);
+        list.set_selected(Some(0));
+        list.layout(Rect::new(0, 0, W, H));
+        let _ = be.render(&mut list);
+        (be, list)
+    }
+
+    #[test]
+    fn the_wheel_scrolls_the_list_without_touching_the_selection() {
+        let (be, mut list) = long_list();
+        assert_eq!(list.scroll_top(), 0);
+
+        be.dispatch(&mut list, &scroll(W / 2, H / 2, 3.0));
+        assert_eq!(list.scroll_top(), 3, "one notch scrolls three rows down");
+        assert_eq!(list.selected_index(), Some(0), "selection is untouched");
+
+        be.dispatch(&mut list, &scroll(W / 2, H / 2, -3.0));
+        assert_eq!(list.scroll_top(), 0, "scrolling back returns to the top");
+    }
+
+    #[test]
+    fn a_wheel_event_outside_the_list_is_ignored() {
+        let (be, mut list) = long_list();
+        be.dispatch(&mut list, &scroll(W + 10, H + 10, 3.0));
+        assert_eq!(list.scroll_top(), 0);
+    }
 }

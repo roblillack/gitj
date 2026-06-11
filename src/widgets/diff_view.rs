@@ -452,6 +452,15 @@ impl Widget for DiffView {
             self.v_scrollbar.event(event, ctx);
             return;
         }
+        // The wheel scrolls the diff whenever the pointer is anywhere over
+        // it — not just over the scrollbar gutter — without disturbing any
+        // line selection, matching native scrolled views.
+        if let Event::Scroll { pos, .. } = event {
+            if self.rect.contains(*pos) {
+                self.v_scrollbar.event(event, ctx);
+            }
+            return;
+        }
         if let Some(pos) = event.position()
             && self.v_scrollbar.rect().contains(pos)
         {
@@ -741,6 +750,54 @@ mod tests {
         dv.layout(Rect::new(0, 0, W, H));
         let _ = be.render(&mut dv);
         (be, dv)
+    }
+
+    fn scroll(x: i32, y: i32, delta_y: f32) -> Event {
+        Event::Scroll {
+            pos: Point::new(x, y),
+            delta_x: 0.0,
+            delta_y,
+        }
+    }
+
+    /// Like [`staged_view`] but with the sample diff padded by enough trailing
+    /// context lines that the view can actually scroll.
+    fn long_staged_view() -> (MockBackend, DiffView) {
+        let mut diff = sample();
+        diff.lines.extend(
+            (0..40).map(|i| DiffLine::new(DiffLineKind::Context, format!(" pad {i}"))),
+        );
+        let be = MockBackend::new(W, H).with_scale(1.0);
+        let mut dv = DiffView::new(Rect::new(0, 0, W, H));
+        dv.set_mode(DiffMode::Stage);
+        dv.set_diff(diff);
+        dv.layout(Rect::new(0, 0, W, H));
+        let _ = be.render(&mut dv);
+        (be, dv)
+    }
+
+    #[test]
+    fn the_wheel_scrolls_the_diff_without_touching_the_selection() {
+        let (be, mut dv) = long_staged_view();
+        // Select an addition first, so we can check the wheel leaves it alone.
+        be.dispatch(&mut dv, &down(10, row_y(3)));
+        be.dispatch(&mut dv, &up(10, row_y(3)));
+        assert_eq!(dv.body_bounds(), Some((3, 3)));
+        assert_eq!(dv.scroll_top(), 0);
+
+        be.dispatch(&mut dv, &scroll(W / 2, H / 2, 3.0));
+        assert_eq!(dv.scroll_top(), 3, "one notch scrolls three lines down");
+        assert_eq!(dv.body_bounds(), Some((3, 3)), "selection is untouched");
+
+        be.dispatch(&mut dv, &scroll(W / 2, H / 2, -3.0));
+        assert_eq!(dv.scroll_top(), 0, "scrolling back returns to the top");
+    }
+
+    #[test]
+    fn a_wheel_event_outside_the_diff_is_ignored() {
+        let (be, mut dv) = long_staged_view();
+        be.dispatch(&mut dv, &scroll(W + 10, H + 10, 3.0));
+        assert_eq!(dv.scroll_top(), 0);
     }
 
     #[test]

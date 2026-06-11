@@ -12,6 +12,12 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ### Added
 
+- Mouse-wheel and trackpad scrolling: the commit history, the review screen's
+  branch list and the diff views scroll under the pointer — a wheel notch
+  moves three lines, trackpad gestures scroll smoothly — leaving the selection
+  untouched. The file lists and the commit message editor get the same
+  behavior from the toolkit, so every scrollable pane now responds to the
+  wheel. (#14)
 - Branch review mode: a third screen (View ▸ Review Branches, Ctrl+3) lists
   every local and remote-tracking branch — the checked-out one first, and a
   remote folded into its local's row when both sit at the same tip — each with
