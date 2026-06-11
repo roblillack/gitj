@@ -56,6 +56,15 @@ cargo install gitj
   that file.
 * **Diff view** with the usual coloring — green additions, red deletions,
   blue hunk headers, gray file headers.
+* **Graphical image diff**: selecting a changed image (PNG, JPEG, GIF, WebP,
+  BMP, TIFF, …) shows the two versions visually instead of a "binary files
+  differ" line. Compare them side by side (**2-up**), with a **swipe** split, an
+  **onion-skin** cross-fade, or a per-pixel **difference** heatmap — switched
+  from the button row or the **View** menu (**Switch Mode**, Ctrl+M), with a
+  slider driving the swipe / onion position. **Before** / **After Image**
+  (Ctrl+Left / Ctrl+Right) show just the old / new side full size, and **Next** /
+  **Previous Image** (Ctrl+N / Ctrl+P) step between the image files in the active
+  list. Works in both the browse and commit diff panes.
 * **Working-tree entries**: when there are local changes, the log leads with
   "Uncommitted changes" / "Staged changes" rows (connected into the graph at
   `HEAD`). Selecting one previews its files and diff; **double-clicking** it
@@ -80,12 +89,16 @@ cargo install gitj
   adding a new commit.
 * **Rescan** re-reads the working tree. Committing returns to the log view,
   which now shows the new commit.
-* **Keyboard shortcuts** mirror `git gui` (and are shown next to each Commit
-  menu item): **Ctrl+Enter** commits, **Ctrl+T** stages the selected file,
-  **Ctrl+I** stages everything, **Ctrl+J** reverts (or deletes) the selected
-  unstaged file, **Ctrl+S** appends a `Signed-off-by` trailer, **Ctrl+R**
-  rescans, and the message editor takes the usual **Ctrl+C / X / V / A**.
-  **Ctrl+Q** quits from either screen.
+* **Keyboard shortcuts** mirror `git gui` (and are shown next to each menu
+  item): **Ctrl+B** / **Ctrl+C** switch between the **Browse History** and
+  **Commit Changes** screens — the active one is checkmarked in the **View**
+  menu — **Ctrl+Enter** commits, **Ctrl+T** stages the selected file, **Ctrl+I**
+  stages everything, **Ctrl+U** unstages the selected file, **Ctrl+J** reverts
+  (or deletes) the selected unstaged file, **Ctrl+S** appends a `Signed-off-by`
+  trailer, and **Ctrl+R** rescans. The
+  message editor takes the usual **Ctrl+C / X / V / A**: Ctrl+C only switches
+  screens from the browse view, so it stays available as copy while you edit the
+  commit message. **Ctrl+Q** quits from either screen.
 
 ### Throughout
 
@@ -101,8 +114,9 @@ abstraction, which keeps everything testable without a live repository.
 
 | Module | Contents |
 |--------|----------|
-| `backend` | `RepoBackend` trait + data types (`CommitInfo`, `FileChange`, `Diff`/`DiffLine`, `RefLabel`, `WorkingStatus`). Browse reads history/diffs; commit mode adds working-tree status, per-file diffs, `stage`/`unstage`, `revert`/`delete_untracked`, `commit` (with amend). Implementations: `Git2Backend` (live, libgit2) and `FixtureBackend` (deterministic, in-memory, with a simulated working tree). |
-| `widgets` | git-specific widgets — `CommitList` (graph + badges + columns), `DiffView` (colored diff), `SearchBar`, `Heading`, `graph` (DAG lane assignment); `Shell`, a generic flat-focus container, plus a `layout` module giving the browse and commit screens their rectangles; generic `Shared<W>` adapter. |
+| `backend` | `RepoBackend` trait + data types (`CommitInfo`, `FileChange`, `Diff`/`DiffLine`, `BlobPair`, `RefLabel`, `WorkingStatus`). Browse reads history/diffs; commit mode adds working-tree status, per-file diffs, `stage`/`unstage`, `revert`/`delete_untracked`, `commit` (with amend); image diffs read the two sides' raw blobs (`commit_file_blobs`/`working_file_blobs`). Implementations: `Git2Backend` (live, libgit2) and `FixtureBackend` (deterministic, in-memory, with a simulated working tree). |
+| `imagediff` | Decodes image blobs (via the `image` crate) and composes the two sides into a comparison canvas for the 2-up / swipe / onion-skin / difference modes — the toolkit-independent half of the graphical diff. |
+| `widgets` | git-specific widgets — `CommitList` (graph + badges + columns), `DiffView` (colored diff), `ImageDiffView` (graphical image diff) wrapped by `DiffPane` (shows whichever the file calls for), `SearchBar`, `Heading`, `graph` (DAG lane assignment); `Shell`, a generic flat-focus container, plus a `layout` module giving the browse and commit screens their rectangles; generic `Shared<W>` adapter. |
 | `ui` | `GitClient`, the top-level widget. It owns both screens (a `Shell` each), switches between them, and — since saudade widgets are callback-free — polls selections and a small command queue after each event to rebuild dependent panes. |
 
 ## Testing
@@ -115,6 +129,9 @@ abstraction, which keeps everything testable without a live repository.
 * **`tests/git2_backend.rs`** builds a throwaway repository with fixed
   signatures/timestamps and reads it back through `Git2Backend`, so the live
   backend is covered deterministically.
+* **`tests/image_blobs.rs`** commits and edits a PNG in a throwaway repository
+  and asserts `Git2Backend` returns the exact blob bytes for each side of a
+  commit and working-tree image change.
 * **`tests/commit_backend.rs`** exercises commit mode end to end: it stages,
   unstages, reverts, commits and amends in a throwaway repository (and against
   the fixture), asserting the working-tree status at each step.

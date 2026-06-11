@@ -14,12 +14,12 @@ use saudade::mock::MockBackend;
 use saudade::{Event, Font, Widget};
 
 pub fn sans_font() -> Font {
-    Font::from_bytes(include_bytes!("../fonts/DejaVuSans.ttf").to_vec())
+    Font::from_sans_bytes(include_bytes!("../fonts/DejaVuSans.ttf").to_vec())
         .expect("bundled DejaVuSans.ttf failed to load")
 }
 
 pub fn mono_font() -> Font {
-    Font::from_bytes(include_bytes!("../fonts/DejaVuSansMono.ttf").to_vec())
+    Font::from_sans_bytes(include_bytes!("../fonts/DejaVuSansMono.ttf").to_vec())
         .expect("bundled DejaVuSansMono.ttf failed to load")
 }
 
@@ -57,7 +57,7 @@ fn snapshot_one(
 ) {
     let backend = MockBackend::new(width, height)
         .with_scale(SCALE)
-        .with_font(sans_font())
+        .with_sans_font(sans_font())
         .with_mono_font(mono_font());
 
     if !events.is_empty() {

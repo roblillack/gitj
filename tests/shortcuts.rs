@@ -10,7 +10,7 @@ use std::rc::Rc;
 use journey::backend::{FixtureBackend, RepoBackend};
 use journey::ui::GitClient;
 use saudade::mock::MockBackend;
-use saudade::{Event, Key, Modifiers, MouseButton, NamedKey, Point, Widget};
+use saudade::{Event, Key, ModifierScheme, Modifiers, MouseButton, NamedKey, Point, Widget};
 
 // The commit screen uses the same window size as its snapshots.
 const CW: i32 = 820;
@@ -28,6 +28,17 @@ fn ctrl(key: Key) -> Event {
 
 fn ctrl_char(c: char) -> Event {
     ctrl(Key::Char(c))
+}
+
+/// A ⌘-chord, as a macOS host delivers it (the logo modifier).
+fn cmd_char(c: char) -> Event {
+    Event::KeyDown {
+        key: Key::Char(c),
+        modifiers: Modifiers {
+            logo: true,
+            ..Modifiers::default()
+        },
+    }
 }
 
 fn click(x: i32, y: i32) -> Event {
@@ -60,13 +71,21 @@ fn type_text(w: &mut dyn Widget, backend: &MockBackend, s: &str) {
 
 /// A commit-mode client, laid out and focused exactly as the live app would be
 /// after its first frame, plus a handle on its backing fixture for assertions.
+/// The menu scheme is pinned to [`ModifierScheme::Pc`] so the Ctrl chords
+/// below match on every host, macOS included.
 fn commit_client() -> (Rc<FixtureBackend>, MockBackend, Box<dyn Widget>) {
+    commit_client_with(ModifierScheme::Pc)
+}
+
+fn commit_client_with(
+    scheme: ModifierScheme,
+) -> (Rc<FixtureBackend>, MockBackend, Box<dyn Widget>) {
     let be = Rc::new(FixtureBackend::sample());
-    let mut client = GitClient::new(be.clone());
+    let mut client = GitClient::with_menu_scheme(be.clone(), scheme);
     client.enter_commit_mode();
     let backend = MockBackend::new(CW, CH)
         .with_scale(1.0)
-        .with_font(common::sans_font())
+        .with_sans_font(common::sans_font())
         .with_mono_font(common::mono_font());
     let mut widget: Box<dyn Widget> = Box::new(client);
     // Warm-up render lays the tree out (and primes geometry caches), matching
@@ -107,6 +126,37 @@ fn ctrl_i_stages_every_unstaged_file() {
     assert!(
         be.working_status(false).unstaged.is_empty(),
         "Ctrl+I should stage all changed files"
+    );
+}
+
+#[test]
+fn ctrl_u_unstages_the_selected_staged_file() {
+    let (be, backend, mut w) = commit_client();
+    // src/widgets/commit_panel.rs is staged in the sample fixture. Select it in
+    // the lower-left staged list (the same row the staged-file snapshot clicks).
+    assert!(
+        be.working_status(false)
+            .staged
+            .iter()
+            .any(|f| f.path == "src/widgets/commit_panel.rs")
+    );
+    backend.dispatch(w.as_mut(), &click(60, 304));
+    backend.dispatch(w.as_mut(), &release(60, 304));
+
+    backend.dispatch(w.as_mut(), &ctrl_char('u'));
+
+    let ws = be.working_status(false);
+    assert!(
+        !ws.staged
+            .iter()
+            .any(|f| f.path == "src/widgets/commit_panel.rs"),
+        "Ctrl+U should unstage the selected file, got {ws:?}"
+    );
+    assert!(
+        ws.unstaged
+            .iter()
+            .any(|f| f.path == "src/widgets/commit_panel.rs"),
+        "the file should reappear in the unstaged list"
     );
 }
 
@@ -208,6 +258,77 @@ fn ctrl_j_on_untracked_then_confirm_deletes_the_file() {
             .iter()
             .any(|f| f.path == "notes.md"),
         "confirming should delete the untracked notes.md"
+    );
+}
+
+#[test]
+fn ctrl_1_and_2_switch_between_browse_and_commit() {
+    let be = Rc::new(FixtureBackend::sample());
+    let client = GitClient::with_menu_scheme(be.clone(), ModifierScheme::Pc);
+    let backend = MockBackend::new(CW, CH)
+        .with_scale(1.0)
+        .with_sans_font(common::sans_font())
+        .with_mono_font(common::mono_font());
+    let mut w: Box<dyn Widget> = Box::new(client);
+    let _ = backend.render(w.as_mut());
+    w.focus_first();
+
+    // The app starts on the browse screen, whose menu bar carries no staging
+    // accelerators — Ctrl+T is inert there.
+    backend.dispatch(w.as_mut(), &ctrl_char('t'));
+    assert!(
+        !be.working_status(false)
+            .staged
+            .iter()
+            .any(|f| f.path == "src/ui.rs"),
+        "Ctrl+T must do nothing on the browse screen"
+    );
+
+    // Ctrl+2 switches to the commit screen; the staging accelerators are live
+    // now, so Ctrl+T stages the auto-selected first unstaged file.
+    backend.dispatch(w.as_mut(), &ctrl_char('2'));
+    backend.dispatch(w.as_mut(), &ctrl_char('t'));
+    assert!(
+        be.working_status(false)
+            .staged
+            .iter()
+            .any(|f| f.path == "src/ui.rs"),
+        "Ctrl+2 should land on the commit screen, where Ctrl+T stages"
+    );
+
+    // Ctrl+1 returns to the browse screen, deactivating them again.
+    backend.dispatch(w.as_mut(), &ctrl_char('1'));
+    backend.dispatch(w.as_mut(), &ctrl_char('i'));
+    assert_eq!(
+        be.working_status(false).unstaged.len(),
+        1,
+        "back on the browse screen, Ctrl+I must not stage the remaining file"
+    );
+}
+
+#[test]
+fn mac_scheme_binds_the_staging_accels_to_cmd() {
+    // Under the Mac scheme the "Ctrl+…" accel strings mean the primary role,
+    // i.e. ⌘ — so Ctrl+T must fall through and Cmd+T must stage. This pins the
+    // mapping a macOS build gets from `ModifierScheme::native()`.
+    let (be, backend, mut w) = commit_client_with(ModifierScheme::Mac);
+
+    backend.dispatch(w.as_mut(), &ctrl_char('t'));
+    assert!(
+        !be.working_status(false)
+            .staged
+            .iter()
+            .any(|f| f.path == "src/ui.rs"),
+        "Ctrl+T must not stage under the Mac scheme"
+    );
+
+    backend.dispatch(w.as_mut(), &cmd_char('t'));
+    assert!(
+        be.working_status(false)
+            .staged
+            .iter()
+            .any(|f| f.path == "src/ui.rs"),
+        "Cmd+T should stage the selected file under the Mac scheme"
     );
 }
 

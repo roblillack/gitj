@@ -6,11 +6,14 @@ mod common;
 use std::rc::Rc;
 
 use common::{snapshot, snapshot_with_events};
-use journey::backend::{Diff, DiffLine, DiffLineKind, FixtureBackend, RefKind, RefLabel};
+use journey::backend::{
+    ChangeStatus, Diff, DiffLine, DiffLineKind, FixtureBackend, RefKind, RefLabel,
+};
 use journey::ui::GitClient;
 use journey::widgets::{CommitList, CommitRow, DiffView, compute_graph};
 use saudade::{
-    Color, Container, Event, Key, Modifiers, MouseButton, NamedKey, Point, Rect, Widget,
+    Color, Container, Event, Key, ModifierScheme, Modifiers, MouseButton, NamedKey, Point, Rect,
+    Widget,
 };
 
 const W: i32 = 760;
@@ -21,14 +24,36 @@ const H: i32 = 520;
 const CW: i32 = 820;
 const CH: i32 = 560;
 
+// Snapshots pin the PC modifier scheme so the Ctrl chords below match and the
+// open menus render PC-style accel labels regardless of the host platform.
 fn sample_client() -> GitClient {
-    GitClient::new(Rc::new(FixtureBackend::sample()))
+    GitClient::with_menu_scheme(Rc::new(FixtureBackend::sample()), ModifierScheme::Pc)
 }
 
 fn key(k: NamedKey) -> Event {
     Event::KeyDown {
         key: Key::Named(k),
         modifiers: Modifiers::default(),
+    }
+}
+
+fn ctrl_char(ch: char) -> Event {
+    Event::KeyDown {
+        key: Key::Char(ch),
+        modifiers: Modifiers {
+            control: true,
+            ..Modifiers::default()
+        },
+    }
+}
+
+fn alt_char(ch: char) -> Event {
+    Event::KeyDown {
+        key: Key::Char(ch),
+        modifiers: Modifiers {
+            alt: true,
+            ..Modifiers::default()
+        },
     }
 }
 
@@ -187,6 +212,115 @@ fn commit_mode() {
         client.focus_first();
         Box::new(client)
     });
+}
+
+/// Encode a `128×96` PNG: a blue field with a red square at `(sq_x, sq_y)`, so
+/// the two sides of the demo image differ visibly.
+fn demo_png(sq_x: u32, sq_y: u32) -> Vec<u8> {
+    use image::{Rgba, RgbaImage};
+    let mut img = RgbaImage::from_pixel(128, 96, Rgba([0x30, 0x60, 0xC0, 0xFF]));
+    for y in sq_y..(sq_y + 32).min(96) {
+        for x in sq_x..(sq_x + 32).min(128) {
+            img.put_pixel(x, y, Rgba([0xE0, 0x40, 0x40, 0xFF]));
+        }
+    }
+    let mut bytes = Vec::new();
+    image::DynamicImage::ImageRgba8(img)
+        .write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Png,
+        )
+        .expect("encode demo png");
+    bytes
+}
+
+/// A client whose working tree holds a single modified image, so commit mode
+/// auto-selects it and shows the graphical diff.
+fn image_client() -> GitClient {
+    use journey::backend::fixture::commit;
+    let mut be = FixtureBackend::new("/home/rob/dev/journey");
+    be.add_commit(
+        commit(
+            "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+            "Add logo",
+            "Robert Lillack",
+            "rob@example.com",
+            1_716_100_000,
+            120,
+            &[],
+            &[("main", RefKind::Head)],
+        ),
+        vec![],
+    );
+    be.add_working_image(
+        "assets/logo.png",
+        ChangeStatus::Modified,
+        false,
+        Some(demo_png(16, 16)),
+        Some(demo_png(64, 40)),
+    );
+    GitClient::with_menu_scheme(Rc::new(be), ModifierScheme::Pc)
+}
+
+/// Selecting an image file in commit mode replaces the text diff with a
+/// graphical comparison: the before/after images side by side (the default
+/// "2-Up" mode), a metadata line, and the mode-switch button row.
+#[test]
+fn commit_mode_image_diff() {
+    snapshot("commit_mode_image_diff", CW, CH, || {
+        let mut client = image_client();
+        client.enter_commit_mode();
+        client.focus_first();
+        Box::new(client)
+    });
+}
+
+/// The same image diff switched to the per-pixel "difference" heatmap via the
+/// Switch Mode accelerator — black where the images match, hot colors where they
+/// differ. Ctrl+M cycles 2-Up → Swipe → Onion → Difference, so three presses
+/// land on Difference. Accelerator-driven so the test never depends on
+/// font-dependent button widths.
+#[test]
+fn commit_mode_image_diff_difference() {
+    snapshot_with_events(
+        "commit_mode_image_diff_difference",
+        CW,
+        CH,
+        || {
+            let mut client = image_client();
+            client.enter_commit_mode();
+            Box::new(client)
+        },
+        // Click the image pane first (moves focus off the file list, matching
+        // the original baseline), then Ctrl+M ×3 to land on Difference.
+        || {
+            vec![
+                click(568, 120),
+                ctrl_char('m'),
+                ctrl_char('m'),
+                ctrl_char('m'),
+            ]
+        },
+    );
+}
+
+/// The View menu on the commit screen with the modified image selected: Switch
+/// Mode / Before Image / After Image are enabled (an image diff is on screen),
+/// while Next / Previous Image are greyed — the working tree holds just the one
+/// image, so there's nowhere to navigate. Exercises the disabled-menu-item path.
+#[test]
+fn commit_mode_view_menu() {
+    snapshot_with_events(
+        "commit_mode_view_menu",
+        CW,
+        CH,
+        || {
+            let mut client = image_client();
+            client.enter_commit_mode();
+            Box::new(client)
+        },
+        || vec![alt_char('v')], // open the View menu
+    );
 }
 
 /// Click a file in the *staged* list: the diff pane switches to that file's

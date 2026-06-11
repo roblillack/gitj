@@ -17,8 +17,8 @@
 //! [`set_mode`]: DiffView::set_mode
 
 use saudade::{
-    Color, Event, EventCtx, Key, MouseButton, NamedKey, Painter, Point, Rect, SCROLLBAR_THICKNESS,
-    ScrollBar, Theme, Widget,
+    Color, Event, EventCtx, FontFamily, FontStyle, Key, MouseButton, NamedKey, Painter, Point,
+    Rect, SCROLLBAR_THICKNESS, ScrollBar, Theme, Widget,
 };
 
 use crate::backend::{Diff, DiffLineKind, is_change_line};
@@ -427,7 +427,15 @@ impl Widget for DiffView {
                 painter.fill_rect(Rect::new(text.x + 1, y, row_w, line_h), bg);
             }
             let label_y = y + (line_h - self.font_size as i32) / 2 - 1;
-            painter.mono_text(text_x, label_y, &line.text, self.font_size, fg);
+            painter.text_styled(
+                text_x,
+                label_y,
+                &line.text,
+                self.font_size,
+                fg,
+                FontFamily::Mono,
+                FontStyle::Regular,
+            );
         }
         painter.restore_clip(saved);
 

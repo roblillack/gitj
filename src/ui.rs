@@ -16,16 +16,17 @@ use std::collections::BTreeSet;
 use std::rc::Rc;
 
 use saudade::{
-    Button, Checkbox, Dialog, Event, EventCtx, Key, List, ListItem, Menu, MenuBar, MenuItem,
-    NamedKey, Painter, PopupRequest, Rect, SvgImage, TextEditor, Theme, Widget, include_svg,
+    Button, Checkbox, Dialog, Event, EventCtx, List, ListItem, Menu, MenuBar, MenuItem,
+    ModifierScheme, Painter, PopupRequest, Rect, SvgImage, TextEditor, Theme, Widget, include_svg,
 };
 
 use crate::backend::{
-    ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, PartialMode, RefKind,
-    RepoBackend, WorkingStatus, build_partial_patch,
+    BlobPair, ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, PartialMode,
+    RefKind, RepoBackend, WorkingStatus, build_partial_patch,
 };
+use crate::imagediff::{ImageComparison, is_image_path};
 use crate::widgets::{
-    CommitList, CommitRow, DiffMode, DiffView, Heading, SearchBar, Shared, Shell, compute_graph,
+    CommitList, CommitRow, DiffMode, DiffPane, Heading, SearchBar, Shared, Shell, compute_graph,
     layout,
 };
 
@@ -44,8 +45,9 @@ const WIP_STAGED_ID: &str = "\u{1}journey-wip-staged";
 type ReopenFn = Box<dyn Fn() -> Option<Rc<dyn RepoBackend>>>;
 
 /// Which screen is shown.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
 enum Mode {
+    #[default]
     Browse,
     Commit,
 }
@@ -69,7 +71,7 @@ enum RowRef {
 
 /// Deferred actions menus / buttons request; drained by `GitClient` after
 /// event dispatch so they can mutate state the callbacks can't reach.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum AppCommand {
     Reload,
     EnterCommitMode,
@@ -85,6 +87,29 @@ enum AppCommand {
     PerformDiscard,
     SignOff,
     Commit,
+    /// Select the next / previous image file in the active list (View ▸ Next /
+    /// Previous Image, Ctrl+N / Ctrl+P).
+    NextImage,
+    PrevImage,
+    /// Cycle the shown image comparison mode (View ▸ Switch Mode, Ctrl+M).
+    CycleImageMode,
+    /// Show just the before / after side of the shown image (View ▸ Before /
+    /// After Image, Ctrl+Left / Ctrl+Right).
+    ShowImageBefore,
+    ShowImageAfter,
+}
+
+/// Live state the View menu reads, refreshed after every event (see
+/// [`GitClient::update_menu_nav`]) so the menu reflects the current screen: it
+/// greys the image actions that don't apply — whether the active diff pane
+/// shows an image (Switch Mode / Before / After) and whether the active file
+/// list holds another image to jump to (Next / Previous) — and checkmarks the
+/// active mode against the Browse History / Commit Changes entries.
+#[derive(Default)]
+struct MenuNav {
+    mode: Mode,
+    showing_image: bool,
+    can_nav_images: bool,
 }
 
 /// A discard armed by [`GitClient::revert_selected`] and awaiting the user's
@@ -105,7 +130,7 @@ pub struct GitClient {
     search: Rc<RefCell<SearchBar>>,
     commit_list: Rc<RefCell<CommitList>>,
     file_list: Rc<RefCell<List>>,
-    diff_view: Rc<RefCell<DiffView>>,
+    diff_pane: Rc<RefCell<DiffPane>>,
 
     // ---- commit screen ----------------------------------------------------
     commit_root: Shell,
@@ -113,7 +138,7 @@ pub struct GitClient {
     staged_list: Rc<RefCell<List>>,
     unstaged_heading: Rc<RefCell<Heading>>,
     staged_heading: Rc<RefCell<Heading>>,
-    commit_diff_view: Rc<RefCell<DiffView>>,
+    commit_diff_pane: Rc<RefCell<DiffPane>>,
     message_editor: Rc<RefCell<TextEditor>>,
     amend_check: Rc<RefCell<Checkbox>>,
     stage_btn: Rc<RefCell<Button>>,
@@ -127,6 +152,9 @@ pub struct GitClient {
     dialog: Rc<RefCell<Dialog>>,
     commands: Rc<RefCell<Vec<AppCommand>>>,
     reopen: Option<ReopenFn>,
+    /// Enable state the View-menu image actions read; kept current by
+    /// [`Self::update_menu_nav`].
+    nav_state: Rc<RefCell<MenuNav>>,
 
     // ---- browse sync state ------------------------------------------------
     /// Row references in display order: the working-tree pseudo-rows (when
@@ -154,14 +182,23 @@ pub struct GitClient {
 
 impl GitClient {
     pub fn new(backend: Rc<dyn RepoBackend>) -> Self {
+        Self::with_menu_scheme(backend, ModifierScheme::native())
+    }
+
+    /// Like [`GitClient::new`], but pins the accelerator modifier scheme
+    /// instead of using the build platform's. Tests pin [`ModifierScheme::Pc`]
+    /// so chords match and menus render their accel labels identically on
+    /// every host.
+    pub fn with_menu_scheme(backend: Rc<dyn RepoBackend>, scheme: ModifierScheme) -> Self {
         let dialog = Rc::new(RefCell::new(Dialog::new()));
         let commands: Rc<RefCell<Vec<AppCommand>>> = Rc::new(RefCell::new(Vec::new()));
+        let nav_state: Rc<RefCell<MenuNav>> = Rc::new(RefCell::new(MenuNav::default()));
 
         // Browse-screen widgets.
         let search = Rc::new(RefCell::new(SearchBar::new(Rect::new(0, 0, 0, 0))));
         let commit_list = Rc::new(RefCell::new(CommitList::new(Rect::new(0, 0, 0, 0))));
         let file_list = Rc::new(RefCell::new(List::new(Rect::new(0, 0, 0, 0))));
-        let diff_view = Rc::new(RefCell::new(DiffView::new(Rect::new(0, 0, 0, 0))));
+        let diff_pane = Rc::new(RefCell::new(DiffPane::new(Rect::new(0, 0, 0, 0))));
 
         // Add order sets the Tab focus order: search → commits → files → diff
         // (the menu bar isn't focusable; it works via accelerators). The file
@@ -171,13 +208,13 @@ impl GitClient {
         let browse_root = Shell::new()
             .no_background()
             .add(
-                build_browse_menu(commands.clone(), dialog.clone()),
+                build_browse_menu(commands.clone(), dialog.clone(), nav_state.clone(), scheme),
                 layout::browse_menu,
             )
             .add(Shared::new(search.clone()), layout::browse_toolbar)
             .add(Shared::new(commit_list.clone()), layout::browse_history)
             .add(Shared::new(file_list.clone()), layout::browse_files)
-            .add(Shared::new(diff_view.clone()), layout::browse_diff)
+            .add(Shared::new(diff_pane.clone()), layout::browse_diff)
             .add_overlay(Shared::new(dialog.clone()));
 
         // Commit-screen widgets.
@@ -185,7 +222,7 @@ impl GitClient {
         let staged_list = Rc::new(RefCell::new(List::new(Rect::new(0, 0, 0, 0))));
         let unstaged_heading = Rc::new(RefCell::new(Heading::new("Unstaged Changes")));
         let staged_heading = Rc::new(RefCell::new(Heading::new("Staged Changes")));
-        let commit_diff_view = Rc::new(RefCell::new(DiffView::new(Rect::new(0, 0, 0, 0))));
+        let commit_diff_pane = Rc::new(RefCell::new(DiffPane::new(Rect::new(0, 0, 0, 0))));
         let message_editor = Rc::new(RefCell::new(TextEditor::new(Rect::new(0, 0, 0, 0))));
         let amend_check = Rc::new(RefCell::new(Checkbox::new(
             Rect::new(0, 0, 0, 0),
@@ -215,7 +252,7 @@ impl GitClient {
         let commit_root = Shell::new()
             .no_background()
             .add(
-                build_commit_menu(commands.clone(), dialog.clone()),
+                build_commit_menu(commands.clone(), dialog.clone(), nav_state.clone(), scheme),
                 layout::commit_menu,
             )
             .add(
@@ -235,7 +272,7 @@ impl GitClient {
             .add(Shared::new(unstage_btn.clone()), layout::commit_unstage_btn)
             .add(Shared::new(rescan_btn.clone()), layout::commit_rescan_btn)
             .add(Heading::new("Diff"), layout::commit_diff_label)
-            .add(Shared::new(commit_diff_view.clone()), layout::commit_diff)
+            .add(Shared::new(commit_diff_pane.clone()), layout::commit_diff)
             .add(Heading::new("Commit Message"), layout::commit_msg_label)
             .add(Shared::new(message_editor.clone()), layout::commit_editor)
             .add(Shared::new(amend_check.clone()), layout::commit_amend)
@@ -253,13 +290,13 @@ impl GitClient {
             search,
             commit_list,
             file_list,
-            diff_view,
+            diff_pane,
             commit_root,
             unstaged_list,
             staged_list,
             unstaged_heading,
             staged_heading,
-            commit_diff_view,
+            commit_diff_pane,
             message_editor,
             amend_check,
             stage_btn,
@@ -269,6 +306,7 @@ impl GitClient {
             dialog,
             commands,
             reopen: None,
+            nav_state,
             rows: Vec::new(),
             last_query: String::new(),
             log_working: WorkingStatus::default(),
@@ -282,6 +320,7 @@ impl GitClient {
             pending_discard: None,
         };
         client.sync_browse(true);
+        client.update_menu_nav();
         client
     }
 
@@ -366,6 +405,11 @@ impl GitClient {
                 AppCommand::PerformDiscard => self.perform_discard(),
                 AppCommand::SignOff => self.sign_off(),
                 AppCommand::Commit => self.do_commit(),
+                AppCommand::NextImage => self.navigate_image(true),
+                AppCommand::PrevImage => self.navigate_image(false),
+                AppCommand::CycleImageMode => self.cycle_image_mode(),
+                AppCommand::ShowImageBefore => self.show_image_side(true),
+                AppCommand::ShowImageAfter => self.show_image_side(false),
             };
         }
         changed
@@ -435,8 +479,7 @@ impl GitClient {
             let items: Vec<ListItem> = self.current_files.iter().map(file_row).collect();
             self.file_list.borrow_mut().set_items(items);
             self.shown_file = None;
-            let diff = self.selection_diff(sel, None);
-            self.diff_view.borrow_mut().set_diff(diff);
+            self.show_browse_diff(sel, None);
             changed = true;
         }
 
@@ -444,12 +487,40 @@ impl GitClient {
         let file_sel = self.file_list.borrow().selected_index();
         if file_sel != self.shown_file {
             self.shown_file = file_sel;
-            let diff = self.selection_diff(self.shown, file_sel);
-            self.diff_view.borrow_mut().set_diff(diff);
+            self.show_browse_diff(self.shown, file_sel);
             changed = true;
         }
 
         changed
+    }
+
+    /// Update the browse diff pane for a log selection: a graphical image
+    /// comparison when a single image file is selected, otherwise the text diff
+    /// (whole-commit overview when no single file is picked).
+    fn show_browse_diff(&self, sel: Option<RowRef>, file_sel: Option<usize>) {
+        if let Some(file) = file_sel.and_then(|f| self.current_files.get(f))
+            && is_image_path(&file.path)
+            && let Some(cmp) = self.browse_image(sel, &file.path)
+        {
+            self.diff_pane.borrow_mut().show_image(cmp);
+            return;
+        }
+        let diff = self.selection_diff(sel, file_sel);
+        self.diff_pane.borrow_mut().set_diff(diff);
+    }
+
+    /// Build the image comparison for `path` under the current log selection,
+    /// pulling the two blobs from the commit or the working tree. `None` when
+    /// neither side decodes (the caller then shows the text diff).
+    fn browse_image(&self, sel: Option<RowRef>, path: &str) -> Option<ImageComparison> {
+        let blobs: BlobPair = match sel? {
+            RowRef::Commit(cidx) => self.backend.commit_file_blobs(cidx, path),
+            RowRef::Wip(side) => {
+                self.backend
+                    .working_file_blobs(path, matches!(side, Side::Staged), false)
+            }
+        };
+        ImageComparison::from_blobs(&blobs)
     }
 
     /// The diff to show for a log selection: a whole-commit / whole-working-set
@@ -629,7 +700,7 @@ impl GitClient {
         self.prev_unstaged_sel = None;
         self.prev_staged_sel = None;
         {
-            let mut view = self.commit_diff_view.borrow_mut();
+            let mut view = self.commit_diff_pane.borrow_mut();
             view.set_mode(DiffMode::Plain);
             view.set_diff(Diff::default());
         }
@@ -675,18 +746,29 @@ impl GitClient {
             Side::Unstaged => &self.working.unstaged,
             Side::Staged => &self.working.staged,
         };
-        let diff = files
-            .get(i)
-            .map(|f| self.backend.working_diff(&f.path, staged, amend))
-            .unwrap_or_default();
         // Unstaged files offer per-line staging; staged files, per-line
         // unstaging. (Only the commit screen's diff view is ever non-Plain.)
         let mode = match side {
             Side::Unstaged => DiffMode::Stage,
             Side::Staged => DiffMode::Unstage,
         };
-        let mut view = self.commit_diff_view.borrow_mut();
+        let mut view = self.commit_diff_pane.borrow_mut();
         view.set_mode(mode);
+        // An image file shows the graphical comparison; line-range staging
+        // doesn't apply to it (the image view has no selectable lines).
+        if let Some(file) = files.get(i)
+            && is_image_path(&file.path)
+            && let Some(cmp) = ImageComparison::from_blobs(
+                &self.backend.working_file_blobs(&file.path, staged, amend),
+            )
+        {
+            view.show_image(cmp);
+            return;
+        }
+        let diff = files
+            .get(i)
+            .map(|f| self.backend.working_diff(&f.path, staged, amend))
+            .unwrap_or_default();
         view.set_diff(diff);
     }
 
@@ -695,7 +777,7 @@ impl GitClient {
     /// the amend toggle.
     fn sync_commit(&mut self) -> bool {
         // The Stage/Unstage button floating over a highlighted diff range.
-        let action = self.commit_diff_view.borrow_mut().take_action();
+        let action = self.commit_diff_pane.borrow_mut().take_action();
         if let Some((lo, hi)) = action {
             return self.apply_partial(lo, hi);
         }
@@ -984,52 +1066,129 @@ impl GitClient {
         true
     }
 
-    /// `git gui`-style keyboard accelerators, handled before the active screen
-    /// sees the event so they fire regardless of which pane holds focus — in
-    /// particular Ctrl+Enter commits instead of inserting a newline in the
-    /// message editor. Returns `true` when the keystroke was consumed.
-    fn handle_shortcut(&mut self, event: &Event, ctx: &mut EventCtx) -> bool {
-        // While a modal dialog is up it owns the keyboard.
-        if self.dialog.borrow().is_open() {
-            return false;
-        }
-        let Event::KeyDown { key, modifiers } = event else {
-            return false;
-        };
-        // Only plain Ctrl-chords; Alt / Logo combos belong to the menu bar / OS.
-        if !modifiers.control || modifiers.alt || modifiers.logo {
-            return false;
-        }
+    // ---- graphical image diff (both screens) ------------------------------
 
-        let letter = match key {
-            Key::Char(c) => Some(c.to_ascii_lowercase()),
-            _ => None,
-        };
-
-        // Ctrl+Q quits from either screen (git gui binds quit globally).
-        if letter == Some('q') {
-            ctx.close();
-            return true;
+    /// The diff pane of the active screen.
+    fn active_diff_pane(&self) -> Rc<RefCell<DiffPane>> {
+        match self.mode {
+            Mode::Browse => self.diff_pane.clone(),
+            Mode::Commit => self.commit_diff_pane.clone(),
         }
+    }
 
-        // The remaining accelerators drive the staging screen.
-        if self.mode != Mode::Commit {
-            return false;
-        }
-        let command = if matches!(key, Key::Named(NamedKey::Enter)) {
-            AppCommand::Commit
+    /// Whether the active diff pane is currently showing a graphical image diff
+    /// (vs. a text diff) — the enable state for Switch Mode / Before / After.
+    fn active_showing_image(&self) -> bool {
+        self.active_diff_pane().borrow().showing_image()
+    }
+
+    /// The commit-screen list a navigation acts on: whichever holds the
+    /// selection, else the first non-empty list (unstaged preferred).
+    fn active_commit_side(&self) -> Side {
+        if self.unstaged_list.borrow().selected_index().is_some() {
+            Side::Unstaged
+        } else if self.staged_list.borrow().selected_index().is_some() {
+            Side::Staged
+        } else if !self.working.unstaged.is_empty() {
+            Side::Unstaged
         } else {
-            match letter {
-                Some('r') => AppCommand::Rescan,
-                Some('t') => AppCommand::StageSelected,
-                Some('i') => AppCommand::StageAll,
-                Some('j') => AppCommand::RevertSelected,
-                Some('s') => AppCommand::SignOff,
-                _ => return false,
+            Side::Staged
+        }
+    }
+
+    /// Whether the active file list holds an image file other than the current
+    /// selection — the enable state for Next / Previous Image.
+    fn has_other_image(&self) -> bool {
+        match self.mode {
+            Mode::Browse => {
+                let sel = self.file_list.borrow().selected_index();
+                other_image_exists(&self.current_files, sel)
             }
-        };
-        self.commands.borrow_mut().push(command);
+            Mode::Commit => match self.active_commit_side() {
+                Side::Unstaged => other_image_exists(
+                    &self.working.unstaged,
+                    self.unstaged_list.borrow().selected_index(),
+                ),
+                Side::Staged => other_image_exists(
+                    &self.working.staged,
+                    self.staged_list.borrow().selected_index(),
+                ),
+            },
+        }
+    }
+
+    /// Move the active list's selection to the next / previous image file. The
+    /// normal selection-sync then shows it. Returns `true` when it moved.
+    fn navigate_image(&mut self, forward: bool) -> bool {
+        match self.mode {
+            Mode::Browse => {
+                let sel = self.file_list.borrow().selected_index();
+                let Some(target) = next_image_index(&self.current_files, sel, forward) else {
+                    return false;
+                };
+                self.file_list.borrow_mut().set_selected(Some(target));
+                true
+            }
+            Mode::Commit => {
+                let side = self.active_commit_side();
+                let (target, list) = match side {
+                    Side::Unstaged => (
+                        next_image_index(
+                            &self.working.unstaged,
+                            self.unstaged_list.borrow().selected_index(),
+                            forward,
+                        ),
+                        &self.unstaged_list,
+                    ),
+                    Side::Staged => (
+                        next_image_index(
+                            &self.working.staged,
+                            self.staged_list.borrow().selected_index(),
+                            forward,
+                        ),
+                        &self.staged_list,
+                    ),
+                };
+                let Some(target) = target else { return false };
+                list.borrow_mut().set_selected(Some(target));
+                true
+            }
+        }
+    }
+
+    /// Cycle the shown image comparison mode (no-op unless an image is shown).
+    fn cycle_image_mode(&mut self) -> bool {
+        let pane = self.active_diff_pane();
+        let mut pane = pane.borrow_mut();
+        if !pane.showing_image() {
+            return false;
+        }
+        pane.cycle_image_mode();
         true
+    }
+
+    /// Show just the before / after side of the shown image (no-op unless an
+    /// image is shown).
+    fn show_image_side(&mut self, before: bool) -> bool {
+        let pane = self.active_diff_pane();
+        let mut pane = pane.borrow_mut();
+        if !pane.showing_image() {
+            return false;
+        }
+        pane.show_image_side(before);
+        true
+    }
+
+    /// Refresh the View-menu state from the active screen: the image actions'
+    /// enable state (so the menu greys what doesn't currently apply) and the
+    /// active mode (so the Browse / Commit entries show the checkmark).
+    fn update_menu_nav(&self) {
+        let showing_image = self.active_showing_image();
+        let can_nav_images = self.has_other_image();
+        let mut nav = self.nav_state.borrow_mut();
+        nav.mode = self.mode;
+        nav.showing_image = showing_image;
+        nav.can_nav_images = can_nav_images;
     }
 }
 
@@ -1047,10 +1206,13 @@ impl Widget for GitClient {
     }
 
     fn event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        // Application accelerators take precedence over the focused pane.
-        if !self.handle_shortcut(event, ctx) {
-            self.active_mut().event(event, ctx);
-        }
+        // Keyboard accelerators live on each screen's menu bar (`with_accel`):
+        // the Shell's accelerator pass hands every key to the bar before the
+        // focused pane, so e.g. Ctrl+Enter commits instead of inserting a
+        // newline in the message editor. A chord whose item is disabled falls
+        // through to the focused widget, and an open dialog overlay owns the
+        // keyboard outright — both come with the routing, no gating here.
+        self.active_mut().event(event, ctx);
         // After the tree processes the event, apply commands and sync the
         // active screen's dependent panes.
         let mut dirty = self.drain_commands();
@@ -1058,6 +1220,9 @@ impl Widget for GitClient {
             Mode::Browse => self.sync_browse(false),
             Mode::Commit => self.sync_commit(),
         };
+        // Keep the View-menu image actions' enable state current for the next
+        // paint (e.g. when the menu is about to open).
+        self.update_menu_nav();
         if dirty {
             ctx.request_paint();
         }
@@ -1100,13 +1265,19 @@ impl Widget for GitClient {
     }
 }
 
-/// Build the browse-screen menu bar: File ▸ Reload / Exit, View ▸ Commit
-/// Changes (switch screens), Help ▸ About.
+/// Build the browse-screen menu bar: File ▸ Reload / Exit, View ▸ the
+/// Browse / Commit mode switches + the image-diff actions, Help ▸ About.
 fn build_browse_menu(
     commands: Rc<RefCell<Vec<AppCommand>>>,
     dialog: Rc<RefCell<Dialog>>,
+    nav: Rc<RefCell<MenuNav>>,
+    scheme: ModifierScheme,
 ) -> MenuBar {
+    let mut view = mode_items(&commands, &nav);
+    view.push(MenuItem::separator());
+    view.extend(image_view_items(&commands, &nav));
     MenuBar::new(Rect::new(0, 0, 0, 0))
+        .with_scheme(scheme)
         .add_menu(Menu::new(
             "&File",
             vec![
@@ -1115,24 +1286,23 @@ fn build_browse_menu(
                 MenuItem::action("E&xit", |cx| cx.close()).with_accel("Ctrl+Q"),
             ],
         ))
-        .add_menu(Menu::new(
-            "&View",
-            vec![cmd_item(
-                "&Commit Changes",
-                &commands,
-                AppCommand::EnterCommitMode,
-            )],
-        ))
+        .add_menu(Menu::new("&View", view))
         .add_menu(Menu::new("&Help", vec![about_item(&dialog)]))
 }
 
 /// Build the commit-screen menu bar: File, Commit (the staging actions), View
-/// ▸ Browse History, Help.
+/// ▸ the Browse / Commit mode switches + the image-diff actions, Help.
 fn build_commit_menu(
     commands: Rc<RefCell<Vec<AppCommand>>>,
     dialog: Rc<RefCell<Dialog>>,
+    nav: Rc<RefCell<MenuNav>>,
+    scheme: ModifierScheme,
 ) -> MenuBar {
+    let mut view = mode_items(&commands, &nav);
+    view.push(MenuItem::separator());
+    view.extend(image_view_items(&commands, &nav));
     MenuBar::new(Rect::new(0, 0, 0, 0))
+        .with_scheme(scheme)
         .add_menu(Menu::new(
             "&File",
             vec![
@@ -1149,7 +1319,8 @@ fn build_commit_menu(
                 cmd_item("&Stage Selected", &commands, AppCommand::StageSelected)
                     .with_accel("Ctrl+T"),
                 cmd_item("Stage &All", &commands, AppCommand::StageAll).with_accel("Ctrl+I"),
-                cmd_item("&Unstage Selected", &commands, AppCommand::UnstageSelected),
+                cmd_item("&Unstage Selected", &commands, AppCommand::UnstageSelected)
+                    .with_accel("Ctrl+U"),
                 cmd_item("Re&vert Changes", &commands, AppCommand::RevertSelected)
                     .with_accel("Ctrl+J"),
                 MenuItem::separator(),
@@ -1157,15 +1328,69 @@ fn build_commit_menu(
                 cmd_item("&Commit", &commands, AppCommand::Commit).with_accel("Ctrl+Enter"),
             ],
         ))
-        .add_menu(Menu::new(
-            "&View",
-            vec![cmd_item(
-                "&Browse History",
-                &commands,
-                AppCommand::EnterBrowseMode,
-            )],
-        ))
+        .add_menu(Menu::new("&View", view))
         .add_menu(Menu::new("&Help", vec![about_item(&dialog)]))
+}
+
+/// The View-menu mode switches, shared by both screens: Browse History and
+/// Commit Changes, each checkmarked when its screen is the active one (read live
+/// from `nav`). Picking the entry that's already checked is a harmless no-op, so
+/// both stay enabled. The accelerators are Ctrl+1 / Ctrl+2 — view switching à la
+/// GitHub Desktop — deliberately clear of every editing chord (Ctrl+C must stay
+/// copy in the commit message editor), so no fall-through gating is needed.
+fn mode_items(
+    commands: &Rc<RefCell<Vec<AppCommand>>>,
+    nav: &Rc<RefCell<MenuNav>>,
+) -> Vec<MenuItem> {
+    let is_mode = |mode: Mode| {
+        let nav = nav.clone();
+        move || nav.borrow().mode == mode
+    };
+    vec![
+        cmd_item("&Browse History", commands, AppCommand::EnterBrowseMode)
+            .with_accel("Ctrl+1")
+            .with_checked(is_mode(Mode::Browse)),
+        cmd_item("&Commit Changes", commands, AppCommand::EnterCommitMode)
+            .with_accel("Ctrl+2")
+            .with_checked(is_mode(Mode::Commit)),
+    ]
+}
+
+/// The View-menu entries that drive the graphical image diff, shared by both
+/// screens. Next / Previous Image walk the image files in the active list
+/// (disabled when there's no other image to jump to); Switch Mode / Before /
+/// After act on the shown comparison (disabled unless an image is on screen).
+/// The enable predicates read live [`MenuNav`] state via the captured `nav`.
+fn image_view_items(
+    commands: &Rc<RefCell<Vec<AppCommand>>>,
+    nav: &Rc<RefCell<MenuNav>>,
+) -> Vec<MenuItem> {
+    let can_nav = || {
+        let nav = nav.clone();
+        move || nav.borrow().can_nav_images
+    };
+    let showing = || {
+        let nav = nav.clone();
+        move || nav.borrow().showing_image
+    };
+    vec![
+        cmd_item("&Next Image", commands, AppCommand::NextImage)
+            .with_accel("Ctrl+N")
+            .with_enabled(can_nav()),
+        cmd_item("&Previous Image", commands, AppCommand::PrevImage)
+            .with_accel("Ctrl+P")
+            .with_enabled(can_nav()),
+        MenuItem::separator(),
+        cmd_item("Switch &Mode", commands, AppCommand::CycleImageMode)
+            .with_accel("Ctrl+M")
+            .with_enabled(showing()),
+        cmd_item("Be&fore Image", commands, AppCommand::ShowImageBefore)
+            .with_accel("Ctrl+Left")
+            .with_enabled(showing()),
+        cmd_item("&After Image", commands, AppCommand::ShowImageAfter)
+            .with_accel("Ctrl+Right")
+            .with_enabled(showing()),
+    ]
 }
 
 /// A menu item that pushes `command` onto the deferred-command queue.
@@ -1247,6 +1472,42 @@ fn is_trailer_line(line: &str) -> bool {
     };
     let key = key.to_ascii_lowercase();
     key.ends_with("-by") && key.chars().all(|c| c.is_ascii_alphabetic() || c == '-')
+}
+
+/// Index of the next (`forward`) or previous image file in `files` relative to
+/// the selection `cur`. Navigation does not wrap: `None` once there is no further
+/// image in the chosen direction. When `cur` isn't itself an image, the nearest
+/// image in the chosen direction is picked.
+fn next_image_index(files: &[FileChange], cur: Option<usize>, forward: bool) -> Option<usize> {
+    let images: Vec<usize> = files
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| is_image_path(&f.path))
+        .map(|(i, _)| i)
+        .collect();
+    let cur = cur.map(|c| c as i32);
+    if forward {
+        match cur {
+            Some(c) => images.iter().copied().find(|&i| i as i32 > c),
+            None => images.first().copied(),
+        }
+    } else {
+        match cur {
+            Some(c) => images.iter().rev().copied().find(|&i| (i as i32) < c),
+            None => images.last().copied(),
+        }
+    }
+}
+
+/// Whether `files` holds an image file other than the one already at `cur` — the
+/// condition that enables the Next / Previous Image actions. Unlike
+/// [`next_image_index`] this is direction-agnostic, so the actions stay enabled
+/// at either end of the list (where one direction has nowhere to go).
+fn other_image_exists(files: &[FileChange], cur: Option<usize>) -> bool {
+    files
+        .iter()
+        .enumerate()
+        .any(|(i, f)| is_image_path(&f.path) && Some(i) != cur)
 }
 
 /// Build the display row for a working-tree pseudo-entry in the log.
@@ -1337,7 +1598,69 @@ fn status_icon(status: ChangeStatus) -> SvgImage {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_trailer_line, with_signoff};
+    use super::{is_trailer_line, next_image_index, other_image_exists, with_signoff};
+    use crate::backend::{ChangeStatus, FileChange};
+
+    fn files(paths: &[&str]) -> Vec<FileChange> {
+        paths
+            .iter()
+            .map(|p| FileChange {
+                path: (*p).to_string(),
+                old_path: None,
+                status: ChangeStatus::Modified,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn next_image_navigates_only_images_without_wrapping() {
+        // Images sit at indices 1, 3, 4; text files at 0 and 2.
+        let f = files(&["a.txt", "logo.png", "notes.md", "icon.gif", "photo.jpeg"]);
+        // Forward / backward step image-to-image.
+        assert_eq!(next_image_index(&f, Some(1), true), Some(3));
+        assert_eq!(next_image_index(&f, Some(3), false), Some(1));
+        // …but stop at the ends rather than wrapping.
+        assert_eq!(next_image_index(&f, Some(4), true), None);
+        assert_eq!(next_image_index(&f, Some(1), false), None);
+        // From a non-image row, jump to the nearest image in that direction.
+        assert_eq!(next_image_index(&f, Some(2), true), Some(3));
+        assert_eq!(next_image_index(&f, Some(2), false), Some(1));
+        // No selection starts at the first / last image.
+        assert_eq!(next_image_index(&f, None, true), Some(1));
+        assert_eq!(next_image_index(&f, None, false), Some(4));
+    }
+
+    #[test]
+    fn other_image_exists_stays_true_at_the_ends() {
+        // Three images: navigation can't wrap, but the Next / Previous actions
+        // stay enabled at either end because the *other* direction still moves.
+        let f = files(&["a.txt", "logo.png", "notes.md", "icon.gif", "photo.jpeg"]);
+        assert!(other_image_exists(&f, Some(4)));
+        assert!(other_image_exists(&f, Some(1)));
+        // A lone image already selected leaves nowhere to go.
+        let one = files(&["a.txt", "logo.png"]);
+        assert!(!other_image_exists(&one, Some(1)));
+        // …but it's reachable from a non-image row, and from no selection.
+        assert!(other_image_exists(&one, Some(0)));
+        assert!(other_image_exists(&one, None));
+        // No images at all.
+        assert!(!other_image_exists(&files(&["a.txt", "b.rs"]), None));
+    }
+
+    #[test]
+    fn next_image_is_none_when_no_other_image() {
+        // No images at all.
+        assert_eq!(
+            next_image_index(&files(&["a.txt", "b.rs"]), Some(0), true),
+            None
+        );
+        // The only image is already selected — nowhere to go either way.
+        let one = files(&["a.txt", "logo.png"]);
+        assert_eq!(next_image_index(&one, Some(1), true), None);
+        assert_eq!(next_image_index(&one, Some(1), false), None);
+        // …but from a non-image row that single image is reachable.
+        assert_eq!(next_image_index(&one, Some(0), true), Some(1));
+    }
 
     const NAME: &str = "Ada Lovelace";
     const EMAIL: &str = "ada@example.com";
@@ -1476,5 +1799,80 @@ mod commit_focus_tests {
         assert_eq!(client.staged_list.borrow().selected_index(), None);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A tiny solid-color PNG, just enough that `ImageComparison` decodes it.
+    fn tiny_png() -> Vec<u8> {
+        let img = image::RgbaImage::from_pixel(4, 4, image::Rgba([1, 2, 3, 255]));
+        let mut bytes = Vec::new();
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
+            .unwrap();
+        bytes
+    }
+
+    /// Next Image (Ctrl+N) jumps the commit-screen selection from a text file to
+    /// the next image and the diff pane switches to the graphical comparison;
+    /// stepping again advances to the following image.
+    fn nav_client() -> GitClient {
+        let mut be = crate::backend::FixtureBackend::new("/tmp/journey-nav");
+        be.add_working(
+            "notes.md",
+            ChangeStatus::Modified,
+            false,
+            &[(DiffLineKind::Addition, "+note")],
+        );
+        be.add_working_image(
+            "a.png",
+            ChangeStatus::Modified,
+            false,
+            Some(tiny_png()),
+            Some(tiny_png()),
+        );
+        be.add_working_image(
+            "b.png",
+            ChangeStatus::Modified,
+            false,
+            Some(tiny_png()),
+            Some(tiny_png()),
+        );
+        GitClient::new(Rc::new(be))
+    }
+
+    #[test]
+    fn next_image_jumps_to_images_and_shows_the_comparison() {
+        let mut client = nav_client();
+        client.enter_commit_mode();
+        // The first unstaged row (the text file) is auto-selected; no image yet.
+        assert_eq!(client.unstaged_list.borrow().selected_index(), Some(0));
+        assert!(!client.commit_diff_pane.borrow().showing_image());
+        // The menu enable state reflects that: there *is* an image to jump to.
+        assert!(client.has_other_image());
+
+        // Ctrl+N → first image (a.png, row 1); the sync then shows it.
+        assert!(client.navigate_image(true));
+        assert_eq!(client.unstaged_list.borrow().selected_index(), Some(1));
+        client.sync_commit();
+        assert!(client.commit_diff_pane.borrow().showing_image());
+
+        // Ctrl+N again → the next image (b.png, row 2).
+        assert!(client.navigate_image(true));
+        assert_eq!(client.unstaged_list.borrow().selected_index(), Some(2));
+    }
+
+    #[test]
+    fn switch_mode_only_applies_while_an_image_is_shown() {
+        let mut client = nav_client();
+        client.enter_commit_mode();
+        // On the text file no image is shown, so Switch Mode is a no-op.
+        assert!(!client.cycle_image_mode());
+        // Move onto an image; now it applies.
+        client.navigate_image(true);
+        client.sync_commit();
+        assert!(client.cycle_image_mode());
+        assert!(client.show_image_side(true));
     }
 }

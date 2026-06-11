@@ -79,7 +79,7 @@ fn sample_client() -> GitClient {
 fn shoot(name: &str, w: i32, h: i32, title: &str, mut widget: Box<dyn Widget>, events: &[Event]) {
     let backend = MockBackend::new(w, h)
         .with_scale(SCALE)
-        .with_font(sans_font())
+        .with_sans_font(sans_font())
         .with_mono_font(mono_font());
 
     if !events.is_empty() {
@@ -108,12 +108,12 @@ fn shoot(name: &str, w: i32, h: i32, title: &str, mut widget: Box<dyn Widget>, e
 // regardless of the host's installed fonts; reuse the bundled DejaVu faces the
 // snapshot tests ship.
 fn sans_font() -> Font {
-    Font::from_bytes(include_bytes!("../tests/fonts/DejaVuSans.ttf").to_vec())
+    Font::from_sans_bytes(include_bytes!("../tests/fonts/DejaVuSans.ttf").to_vec())
         .expect("bundled DejaVuSans.ttf failed to load")
 }
 
 fn mono_font() -> Font {
-    Font::from_bytes(include_bytes!("../tests/fonts/DejaVuSansMono.ttf").to_vec())
+    Font::from_sans_bytes(include_bytes!("../tests/fonts/DejaVuSansMono.ttf").to_vec())
         .expect("bundled DejaVuSansMono.ttf failed to load")
 }
 

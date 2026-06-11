@@ -8,8 +8,8 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use super::{
-    ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, RefKind, RefLabel,
-    RepoBackend, WorkingStatus,
+    BlobPair, ChangeStatus, CommitInfo, Diff, DiffLine, DiffLineKind, FileChange, RefKind,
+    RefLabel, RepoBackend, WorkingStatus,
 };
 
 /// A file changed by a commit, paired with the diff that produced it.
@@ -26,6 +26,9 @@ struct WorkingEntry {
     change: FileChange,
     diff: Diff,
     staged: bool,
+    /// Raw image bytes for the two sides, when this entry is an image whose
+    /// graphical diff a test wants to drive. Empty for ordinary text entries.
+    blobs: BlobPair,
 }
 
 pub struct FixtureBackend {
@@ -92,6 +95,37 @@ impl FixtureBackend {
             },
             diff: diff(diff_lines),
             staged,
+            blobs: BlobPair::default(),
+        });
+        self
+    }
+
+    /// Add an *image* path to the simulated working tree. The `old`/`new` bytes
+    /// are what [`RepoBackend::working_file_blobs`] returns for it, so the
+    /// graphical diff can be snapshot-tested deterministically. The text diff is
+    /// the usual "binary files differ" stub the image view replaces.
+    pub fn add_working_image(
+        &mut self,
+        path: &str,
+        status: ChangeStatus,
+        staged: bool,
+        old: Option<Vec<u8>>,
+        new: Option<Vec<u8>>,
+    ) -> &mut Self {
+        self.working.borrow_mut().push(WorkingEntry {
+            change: FileChange {
+                path: path.to_string(),
+                old_path: None,
+                status,
+            },
+            diff: Diff {
+                lines: vec![DiffLine::new(
+                    DiffLineKind::Meta,
+                    format!("Binary files a/{path} and b/{path} differ"),
+                )],
+            },
+            staged,
+            blobs: BlobPair { old, new },
         });
         self
     }
@@ -457,6 +491,17 @@ impl RepoBackend for FixtureBackend {
             return diff;
         }
         Diff::default()
+    }
+
+    fn working_file_blobs(&self, path: &str, _staged: bool, _amend: bool) -> BlobPair {
+        // Like `working_diff`, the simulation keeps one set of bytes per path
+        // regardless of the staged/unstaged side.
+        self.working
+            .borrow()
+            .iter()
+            .find(|e| e.change.path == path)
+            .map(|e| e.blobs.clone())
+            .unwrap_or_default()
     }
 
     fn stage(&self, path: &str) -> Result<(), String> {
