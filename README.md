@@ -11,6 +11,8 @@ A gitk-style repository browser and commit helper built on the
 gitj            # browse the repository containing the current directory
 gitj /path/repo # browse the repository at (or above) a given path
 gitj -c         # open straight onto the commit (staging) screen
+gitj -r         # open the branch-review screen on the checked-out branch
+gitj -r feat/x  # open the branch-review screen with feat/x selected
 gitj --version  # print the version and exit
 gitj --help     # print usage and exit
 ```

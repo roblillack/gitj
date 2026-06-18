@@ -12,6 +12,12 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ### Added
 
+- `-r`/`--review [<branch>]` opens gitj straight onto the branch-review screen,
+  the same way `-c` opens the commit screen. With no branch it selects the
+  checked-out branch; given one (`gitj -r feature/x`, or `--review=feature/x`)
+  it pre-selects that branch — matched against either a branch's name or a
+  remote folded into its row. An unknown branch warns and falls back to the
+  checked-out one. `--commit` and `--review` cannot be combined.
 - Multi-selection in the commit screen's file lists: Ctrl/Cmd+click toggles a
   file in and out of the selection, Shift+click (or Shift+Arrow) selects a
   range, and the Stage/Unstage buttons, their menu items (Ctrl+T / Ctrl+U) and
