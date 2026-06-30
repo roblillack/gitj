@@ -389,10 +389,27 @@ impl GitClient {
         self.set_mode(Mode::Commit);
     }
 
-    /// Switch to the branch-review screen. Exposed for tests; at runtime the
-    /// View menu drives this through the command queue.
-    pub fn enter_review_mode(&mut self) {
+    /// Switch to the branch-review screen, selecting `branch` when given
+    /// (matched against each row's branch name or its folded-in upstream),
+    /// otherwise leaving the checked-out branch selected. Returns `false` when
+    /// `branch` was named but matched no row — the screen still opens, on the
+    /// checked-out branch. The View menu / `gitj` drive the no-argument case;
+    /// `gitj -r <branch>` supplies the branch.
+    pub fn enter_review_mode(&mut self, branch: Option<&str>) -> bool {
         self.set_mode(Mode::Review);
+        let Some(branch) = branch else {
+            return true;
+        };
+        let Some(idx) = self
+            .branches
+            .iter()
+            .position(|b| b.name == branch || b.upstream.as_deref() == Some(branch))
+        else {
+            return false;
+        };
+        self.branch_list.borrow_mut().set_selected(Some(idx));
+        self.sync_review(true);
+        true
     }
 
     fn active(&self) -> &Shell {
@@ -2281,7 +2298,7 @@ mod review_tests {
 
     fn review_client() -> GitClient {
         let mut client = GitClient::new(Rc::new(FixtureBackend::sample()));
-        client.enter_review_mode();
+        client.enter_review_mode(None);
         client
     }
 
@@ -2345,5 +2362,41 @@ mod review_tests {
         client.review_file_list.borrow_mut().set_selected(Some(1));
         assert!(client.sync_review(false));
         assert_eq!(client.shown_review_file, Some(1));
+    }
+
+    #[test]
+    fn entering_review_mode_with_a_branch_pre_selects_it() {
+        let mut client = GitClient::new(Rc::new(FixtureBackend::sample()));
+        assert!(client.enter_review_mode(Some("feature/list-icons")));
+
+        // The named local branch is selected instead of the checked-out one,
+        // and its aggregated changes are already loaded.
+        let sel = client.branch_list.borrow().selected_index();
+        assert_eq!(client.branches[sel.unwrap()].name, "feature/list-icons");
+        assert_eq!(
+            client
+                .review_files
+                .iter()
+                .map(|f| f.path.as_str())
+                .collect::<Vec<_>>(),
+            ["assets/status/added.svg", "src/widgets/list.rs"]
+        );
+    }
+
+    #[test]
+    fn entering_review_mode_matches_a_folded_upstream() {
+        let mut client = GitClient::new(Rc::new(FixtureBackend::sample()));
+        // origin/main has no row of its own — it's folded into main's row — so
+        // it must still resolve, to main.
+        assert!(client.enter_review_mode(Some("origin/main")));
+        assert_eq!(client.branch_list.borrow().selected_index(), Some(0));
+    }
+
+    #[test]
+    fn entering_review_mode_with_an_unknown_branch_falls_back_to_head() {
+        let mut client = GitClient::new(Rc::new(FixtureBackend::sample()));
+        assert!(!client.enter_review_mode(Some("no/such/branch")));
+        // The screen still opens, on the checked-out branch.
+        assert_eq!(client.branch_list.borrow().selected_index(), Some(0));
     }
 }
