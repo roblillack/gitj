@@ -12,6 +12,15 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ### Added
 
+- Graphical diffs now cover SVG files too: a changed `.svg`/`.svgz` is
+  rasterized and shown in the same before/after comparison (2-Up, Swipe, Onion,
+  Difference, …) as raster images, so SVG snapshots can be compared visually
+  instead of only as text. Each side is rendered crisply at the size it occupies
+  (vectors scale to fit the pane, never skewed). A proportional and a monospace
+  font are bundled — so chart labels and text-interface snapshots (terminals,
+  TUIs, code) both render the same on every machine. SVG support is on by
+  default and can be dropped with `--no-default-features` (SVGs then keep their
+  text diff).
 - Multi-selection in the commit screen's file lists: Ctrl/Cmd+click toggles a
   file in and out of the selection, Shift+click (or Shift+Arrow) selects a
   range, and the Stage/Unstage buttons, their menu items (Ctrl+T / Ctrl+U) and
