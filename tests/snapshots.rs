@@ -262,6 +262,64 @@ fn image_client() -> GitClient {
     GitClient::with_menu_scheme(Rc::new(be), ModifierScheme::Pc)
 }
 
+/// A `128×96` SVG: a blue field with a red circle at `(cx, cy)` — the vector
+/// analogue of [`demo_png`], so the two rasterized sides differ visibly.
+#[cfg(feature = "svg")]
+fn demo_svg(cx: u32, cy: u32) -> Vec<u8> {
+    format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="128" height="96">
+  <rect width="128" height="96" fill="#3060c0"/>
+  <circle cx="{cx}" cy="{cy}" r="20" fill="#e04040"/>
+</svg>"##
+    )
+    .into_bytes()
+}
+
+/// A terminal-snapshot SVG: a dark field with two lines of `monospace` text, so
+/// the diff exercises the bundled monospace face (the proportional default would
+/// mangle a text interface). `cmd` parametrizes the prompt so the sides differ.
+#[cfg(feature = "svg")]
+fn demo_terminal_svg(cmd: &str) -> Vec<u8> {
+    format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="240" height="72">
+  <rect width="240" height="72" fill="#1e1e1e"/>
+  <text x="8" y="26" font-family="monospace" font-size="14" fill="#33ff33">$ {cmd}</text>
+  <text x="8" y="50" font-family="monospace" font-size="14" fill="#dddddd">Cargo.toml  src/  README.md</text>
+</svg>"##
+    )
+    .into_bytes()
+}
+
+/// Like [`image_client`] but the modified file is an SVG, so commit mode shows
+/// the graphical comparison of the two *rasterized* sides.
+#[cfg(feature = "svg")]
+fn svg_client() -> GitClient {
+    let mut be = FixtureBackend::new("/home/rob/dev/journey");
+    be.add_working_image(
+        "assets/logo.svg",
+        ChangeStatus::Modified,
+        false,
+        Some(demo_svg(32, 32)),
+        Some(demo_svg(96, 64)),
+    );
+    GitClient::with_menu_scheme(Rc::new(be), ModifierScheme::Pc)
+}
+
+/// A client whose modified SVG is a text-interface snapshot, for the monospace
+/// rendering path.
+#[cfg(feature = "svg")]
+fn svg_terminal_client() -> GitClient {
+    let mut be = FixtureBackend::new("/home/rob/dev/journey");
+    be.add_working_image(
+        "docs/terminal.svg",
+        ChangeStatus::Modified,
+        false,
+        Some(demo_terminal_svg("ls")),
+        Some(demo_terminal_svg("ls -la")),
+    );
+    GitClient::with_menu_scheme(Rc::new(be), ModifierScheme::Pc)
+}
+
 /// Selecting an image file in commit mode replaces the text diff with a
 /// graphical comparison: the before/after images side by side (the default
 /// "2-Up" mode), a metadata line, and the mode-switch button row.
@@ -269,6 +327,35 @@ fn image_client() -> GitClient {
 fn commit_mode_image_diff() {
     snapshot("commit_mode_image_diff", CW, CH, || {
         let mut client = image_client();
+        client.enter_commit_mode();
+        client.focus_first();
+        Box::new(client)
+    });
+}
+
+/// Selecting an SVG file shows the same graphical comparison as a raster image:
+/// both sides are rasterized through the vector backend and composed side by
+/// side, proving SVG snapshots flow through the full diff pipeline. The metadata
+/// line reads `SVG 128x96` for the rasterized intrinsic size.
+#[cfg(feature = "svg")]
+#[test]
+fn commit_mode_svg_diff() {
+    snapshot("commit_mode_svg_diff", CW, CH, || {
+        let mut client = svg_client();
+        client.enter_commit_mode();
+        client.focus_first();
+        Box::new(client)
+    });
+}
+
+/// A text-interface SVG snapshot: the monospace text renders through the bundled
+/// fixed-width face (column-aligned), not the proportional default — the point
+/// of bundling a monospace font for terminal/TUI snapshots.
+#[cfg(feature = "svg")]
+#[test]
+fn commit_mode_svg_terminal_diff() {
+    snapshot("commit_mode_svg_terminal_diff", CW, CH, || {
+        let mut client = svg_terminal_client();
         client.enter_commit_mode();
         client.focus_first();
         Box::new(client)

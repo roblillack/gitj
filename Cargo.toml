@@ -19,8 +19,10 @@ categories = ["gui", "development-tools"]
 # from the package doesn't affect the rendered crate page.
 # `assets/status/*.svg` are baked by `include_svg!` at *build* time, including
 # the downstream build of the published crate, so they must travel in the
-# package or a fresh `cargo install gitj` would fail to compile.
-include = ["src/**/*.rs", "assets/status/*.svg", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE"]
+# package or a fresh `cargo install gitj` would fail to compile. The bundled
+# fonts (a proportional and a monospace face) are likewise `include_bytes!`'d
+# into the `svg` feature, with their licenses travelling alongside them.
+include = ["src/**/*.rs", "assets/status/*.svg", "assets/fonts/*.ttf", "assets/fonts/LICENSE.md", "assets/fonts/DejaVu-LICENSE.txt", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE"]
 
 # cargo-release settings. Single crate, no workspace, so everything lives here
 # (unlike saudade, which splits the workspace-wide defaults into release.toml).
@@ -40,13 +42,23 @@ pre-release-replacements = [
     { file = "CHANGELOG.md", search = "<!-- next-url -->", replace = "<!-- next-url -->\n[Unreleased]: https://github.com/roblillack/gitj/compare/{{tag_name}}...HEAD", exactly = 1 },
 ]
 
+[features]
+# SVG comparison is on by default but optional: `--no-default-features` drops
+# the vector backend (and its build weight), and SVG files fall back to their
+# normal text diff — exactly as before this feature existed.
+default = ["svg"]
+svg = ["dep:resvg"]
+
 [dependencies]
 saudade = "0.5"
 git2 = { version = "0.18", default-features = false }
 # Decodes the image blobs the graphical diff compares. A trimmed feature set
-# (the raster formats people actually commit) keeps the build light; SVG stays a
-# text diff, so no vector backend is needed here.
+# (the raster formats people actually commit) keeps the build light.
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp"] }
+# Rasterizes SVG blobs so they join the graphical diff instead of falling back
+# to a text diff (the `svg` feature). resvg re-exports the `usvg` parser and the
+# `tiny_skia` rasterizer, so this single dep covers the whole pipeline.
+resvg = { version = "0.47", default-features = false, features = ["text", "raster-images"], optional = true }
 
 [dev-dependencies]
 insta = "1"

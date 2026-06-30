@@ -38,19 +38,35 @@ const SEP_COLOR: Rgba<u8> = Rgba([0x80, 0x80, 0x80, 0xFF]);
 const SWIPE_DIVIDER: Rgba<u8> = Rgba([0xFF, 0xDC, 0x00, 0xFF]);
 
 /// File extensions journey treats as raster images for the graphical diff.
-/// SVG is deliberately excluded — it's text, so its normal diff is meaningful.
 const IMAGE_EXTENSIONS: &[&str] = &[
     "png", "jpg", "jpeg", "gif", "bmp", "webp", "tiff", "tif", "ico", "qoi", "tga", "pnm", "ppm",
     "pgm", "pbm",
 ];
 
-/// Whether `path` looks like a raster image worth showing graphically.
+/// Vector extensions shown graphically when the `svg` feature is on (the blob is
+/// rasterized — see [`crate::svg`]). With the feature off these aren't treated as
+/// images, so SVG keeps its meaningful text diff.
+#[cfg(feature = "svg")]
+const SVG_EXTENSIONS: &[&str] = &["svg", "svgz"];
+
+/// Whether `path` looks like an image worth showing graphically.
 pub fn is_image_path(path: &str) -> bool {
-    path.rsplit('.')
+    let Some(ext) = path
+        .rsplit('.')
         .next()
         .filter(|_| path.contains('.'))
         .map(|ext| ext.to_ascii_lowercase())
-        .is_some_and(|ext| IMAGE_EXTENSIONS.contains(&ext.as_str()))
+    else {
+        return false;
+    };
+    if IMAGE_EXTENSIONS.contains(&ext.as_str()) {
+        return true;
+    }
+    #[cfg(feature = "svg")]
+    if SVG_EXTENSIONS.contains(&ext.as_str()) {
+        return true;
+    }
+    false
 }
 
 /// One of the ways the two images can be compared.
@@ -170,6 +186,18 @@ pub struct ImageComparison {
     meta: String,
     cache: Option<FitCache>,
     render_cache: Option<RenderCache>,
+    /// Source bytes of any side that is an SVG, kept so the side can be
+    /// re-rasterized crisply at whatever size the pane gives it (vectors fill
+    /// the pane rather than floating at their intrinsic size). `None` for raster
+    /// sides, whose decoded pixels are fixed.
+    #[cfg(feature = "svg")]
+    old_svg: Option<Vec<u8>>,
+    #[cfg(feature = "svg")]
+    new_svg: Option<Vec<u8>>,
+    /// The box the SVG side(s) were last rasterized for, so we only re-render on
+    /// an actual resize.
+    #[cfg(feature = "svg")]
+    resolved_for: Option<(u32, u32)>,
 }
 
 impl ImageComparison {
@@ -188,6 +216,12 @@ impl ImageComparison {
             meta,
             cache: None,
             render_cache: None,
+            #[cfg(feature = "svg")]
+            old_svg: svg_source(blobs.old.as_deref()),
+            #[cfg(feature = "svg")]
+            new_svg: svg_source(blobs.new.as_deref()),
+            #[cfg(feature = "svg")]
+            resolved_for: None,
         })
     }
 
@@ -231,6 +265,8 @@ impl ImageComparison {
         if box_w == 0 || box_h == 0 {
             return Canvas::empty();
         }
+        #[cfg(feature = "svg")]
+        self.ensure_resolved(box_w, box_h);
         let composed = match mode {
             CompareMode::TwoUp => self.two_up(box_w, box_h),
             CompareMode::Left => single(self.old.as_ref(), box_w, box_h),
@@ -293,13 +329,67 @@ impl ImageComparison {
             diff,
         });
     }
+
+    /// Re-rasterize any SVG side to fill `box_w` × `box_h`. Raster sides are
+    /// untouched; SVG sides are vectors, so rendering them at the pane's size
+    /// keeps them crisp and lets them fill the pane (instead of floating at the
+    /// intrinsic size [`decode`] first produced). Cheap to call every compose:
+    /// it no-ops unless the box actually changed.
+    #[cfg(feature = "svg")]
+    fn ensure_resolved(&mut self, box_w: u32, box_h: u32) {
+        if self.old_svg.is_none() && self.new_svg.is_none() {
+            return; // no vector sides — nothing to re-render
+        }
+        if self.resolved_for == Some((box_w, box_h)) {
+            return;
+        }
+        if let Some(bytes) = &self.old_svg
+            && let Some(img) = crate::svg::rasterize_fit(bytes, box_w, box_h)
+        {
+            self.old = Some(img);
+        }
+        if let Some(bytes) = &self.new_svg
+            && let Some(img) = crate::svg::rasterize_fit(bytes, box_w, box_h)
+        {
+            self.new = Some(img);
+        }
+        // The sides changed, so the fit-scaled buffers derived from them are
+        // stale; ensure_cache will rebuild them for this box.
+        self.cache = None;
+        self.resolved_for = Some((box_w, box_h));
+    }
+}
+
+/// The bytes of `blob` when it's an SVG, so the side can be re-rasterized at the
+/// pane's size; `None` for raster blobs (handled by the `image` crate).
+#[cfg(feature = "svg")]
+fn svg_source(blob: Option<&[u8]>) -> Option<Vec<u8>> {
+    blob.filter(|b| crate::svg::looks_like_svg(b))
+        .map(<[u8]>::to_vec)
 }
 
 /// Decode raw image bytes to RGBA, or `None` if the format isn't recognized.
+/// Raster formats go through the `image` crate; an SVG blob is rasterized by the
+/// vector backend (the `svg` feature). When that feature is off, or the bytes
+/// are neither, this returns `None` and the caller falls back to the text diff.
 fn decode(bytes: &[u8]) -> Option<RgbaImage> {
-    image::load_from_memory(bytes)
-        .ok()
-        .map(|img| img.to_rgba8())
+    if let Ok(img) = image::load_from_memory(bytes) {
+        return Some(img.to_rgba8());
+    }
+    decode_vector(bytes)
+}
+
+/// Rasterize a vector blob (SVG) when the `svg` feature is on.
+#[cfg(feature = "svg")]
+fn decode_vector(bytes: &[u8]) -> Option<RgbaImage> {
+    crate::svg::rasterize(bytes)
+}
+
+/// No vector backend: SVG (and anything else `image` can't read) stays a text
+/// diff.
+#[cfg(not(feature = "svg"))]
+fn decode_vector(_bytes: &[u8]) -> Option<RgbaImage> {
+    None
 }
 
 /// Scale one image to fit within `max_w` × `max_h`, preserving aspect ratio.
@@ -506,23 +596,32 @@ fn pair_str(a: Option<String>, b: Option<String>) -> Option<String> {
     }
 }
 
-/// The image format name guessed from a blob's magic bytes.
+/// The image format name guessed from a blob's magic bytes. SVG has no magic
+/// bytes (it's XML), so it's recognized structurally when the `svg` feature is
+/// on — matching what [`decode`] will actually rasterize.
 fn format_name(bytes: &[u8]) -> Option<String> {
     use image::ImageFormat as F;
-    let name = match image::guess_format(bytes).ok()? {
-        F::Png => "PNG",
-        F::Jpeg => "JPEG",
-        F::Gif => "GIF",
-        F::WebP => "WebP",
-        F::Bmp => "BMP",
-        F::Tiff => "TIFF",
-        F::Ico => "ICO",
-        F::Pnm => "PNM",
-        F::Tga => "TGA",
-        F::Qoi => "QOI",
-        _ => return None,
-    };
-    Some(name.to_string())
+    if let Ok(format) = image::guess_format(bytes) {
+        let name = match format {
+            F::Png => "PNG",
+            F::Jpeg => "JPEG",
+            F::Gif => "GIF",
+            F::WebP => "WebP",
+            F::Bmp => "BMP",
+            F::Tiff => "TIFF",
+            F::Ico => "ICO",
+            F::Pnm => "PNM",
+            F::Tga => "TGA",
+            F::Qoi => "QOI",
+            _ => return None,
+        };
+        return Some(name.to_string());
+    }
+    #[cfg(feature = "svg")]
+    if crate::svg::looks_like_svg(bytes) {
+        return Some("SVG".to_string());
+    }
+    None
 }
 
 /// Human-readable byte size, e.g. `1.4KiB`.
@@ -562,8 +661,15 @@ mod tests {
         assert!(is_image_path("ICON.PNG"));
         assert!(is_image_path("photo.jpeg"));
         assert!(!is_image_path("src/main.rs"));
-        assert!(!is_image_path("drawing.svg")); // SVG stays a text diff
         assert!(!is_image_path("Makefile"));
+        // SVG is graphical with the `svg` feature, a text diff without it.
+        #[cfg(feature = "svg")]
+        {
+            assert!(is_image_path("drawing.svg"));
+            assert!(is_image_path("DRAWING.SVGZ"));
+        }
+        #[cfg(not(feature = "svg"))]
+        assert!(!is_image_path("drawing.svg"));
     }
 
     #[test]
