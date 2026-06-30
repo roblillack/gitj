@@ -275,16 +275,23 @@ fn demo_svg(cx: u32, cy: u32) -> Vec<u8> {
     .into_bytes()
 }
 
-/// A terminal-snapshot SVG: a dark field with two lines of `monospace` text, so
-/// the diff exercises the bundled monospace face (the proportional default would
-/// mangle a text interface). `cmd` parametrizes the prompt so the sides differ.
+/// A terminal-snapshot SVG: a dark field with a `monospace` box drawn from
+/// box-drawing characters and a block-element progress bar — the glyphs a text
+/// interface actually uses, which the proportional default can't render and
+/// the bundled monospace face can. `done` (0..=12) sizes the bar so the two
+/// sides differ.
 #[cfg(feature = "svg")]
-fn demo_terminal_svg(cmd: &str) -> Vec<u8> {
+fn demo_terminal_svg(done: usize) -> Vec<u8> {
+    let bar: String = "█".repeat(done) + &"░".repeat(12 - done);
     format!(
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="240" height="72">
-  <rect width="240" height="72" fill="#1e1e1e"/>
-  <text x="8" y="26" font-family="monospace" font-size="14" fill="#33ff33">$ {cmd}</text>
-  <text x="8" y="50" font-family="monospace" font-size="14" fill="#dddddd">Cargo.toml  src/  README.md</text>
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="172" height="92">
+  <rect width="172" height="92" fill="#1e1e1e"/>
+  <g font-family="monospace" font-size="14" fill="#33ff33" xml:space="preserve">
+    <text x="8" y="22">┌──────────────┐</text>
+    <text x="8" y="40">│ Deploying... │</text>
+    <text x="8" y="58">│ {bar} │</text>
+    <text x="8" y="76">└──────────────┘</text>
+  </g>
 </svg>"##
     )
     .into_bytes()
@@ -314,8 +321,8 @@ fn svg_terminal_client() -> GitClient {
         "docs/terminal.svg",
         ChangeStatus::Modified,
         false,
-        Some(demo_terminal_svg("ls")),
-        Some(demo_terminal_svg("ls -la")),
+        Some(demo_terminal_svg(3)),
+        Some(demo_terminal_svg(9)),
     );
     GitClient::with_menu_scheme(Rc::new(be), ModifierScheme::Pc)
 }

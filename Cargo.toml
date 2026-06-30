@@ -22,7 +22,7 @@ categories = ["gui", "development-tools"]
 # package or a fresh `cargo install gitj` would fail to compile. The bundled
 # fonts (a proportional and a monospace face) are likewise `include_bytes!`'d
 # into the `svg` feature, with their licenses travelling alongside them.
-include = ["src/**/*.rs", "assets/status/*.svg", "assets/fonts/*.ttf", "assets/fonts/LICENSE.md", "assets/fonts/DejaVu-LICENSE.txt", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE"]
+include = ["src/**/*.rs", "assets/status/*.svg", "assets/fonts/*.ttf", "assets/fonts/LICENSE.md", "assets/fonts/IBMPlexMono-OFL.txt", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE"]
 
 # cargo-release settings. Single crate, no workspace, so everything lives here
 # (unlike saudade, which splits the workspace-wide defaults into release.toml).

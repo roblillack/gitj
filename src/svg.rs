@@ -23,9 +23,11 @@ use resvg::{tiny_skia, usvg};
 ///
 /// Two faces, because a proportional default mangles SVG snapshots of *text
 /// interfaces* (terminals, code, TUIs): a monospace request gets the monospace
-/// face, everything else the sans-serif one (see [`is_monospace_family`]).
+/// face, everything else the sans-serif one (see [`is_monospace_family`]). IBM
+/// Plex Mono is the monospace face — small (~130 KB) yet covers the box-drawing
+/// and block-element glyphs those interfaces draw with.
 const SANS_FONT: &[u8] = include_bytes!("../assets/fonts/PublicSans-Regular.ttf");
-const MONO_FONT: &[u8] = include_bytes!("../assets/fonts/DejaVuSansMono.ttf");
+const MONO_FONT: &[u8] = include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf");
 /// Default family name handed to usvg for text that names no family at all.
 const DEFAULT_FONT_FAMILY: &str = "Public Sans";
 
@@ -304,6 +306,18 @@ mod tests {
         assert!(is_monospace_family(&Named("Source Code Pro".into())));
         assert!(!is_monospace_family(&SansSerif));
         assert!(!is_monospace_family(&Named("Helvetica".into())));
+    }
+
+    #[test]
+    fn renders_box_drawing_and_block_glyphs() {
+        // The point of a monospace face with box-drawing coverage: these glyphs
+        // must actually paint (not fall through to a blank/tofu), so text-
+        // interface snapshots render. A normal string literal because the glyphs
+        // are multi-byte UTF-8 (byte-string literals are ASCII-only).
+        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="160" height="40"><text x="2" y="28" font-family="monospace" font-size="24" fill="#000000">┌─┐│└┘█░</text></svg>"##;
+        let img = rasterize(svg.as_bytes()).expect("box-drawing svg rasterizes");
+        let inked = img.pixels().filter(|p| p.0[3] > 0).count();
+        assert!(inked > 0, "box-drawing/block glyphs drew nothing");
     }
 
     #[test]
