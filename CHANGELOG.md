@@ -10,6 +10,8 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.4.0] - 2026-07-01
+
 ### Added
 
 - Graphical diffs now cover SVG files too: a changed `.svg`/`.svgz` is
@@ -138,7 +140,8 @@ While pre-1.0, the minor version is bumped for breaking changes.
 Initial release.
 
 <!-- next-url -->
-[Unreleased]: https://github.com/roblillack/gitj/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/roblillack/gitj/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/roblillack/gitj/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/roblillack/gitj/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/roblillack/gitj/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/roblillack/gitj/releases/tag/v0.1.0
