@@ -190,8 +190,7 @@ fn render_scaled(tree: &usvg::Tree, svg_w: f32, svg_h: f32, scale: f32) -> Optio
 /// Convert premultiplied RGBA (tiny_skia's storage) to straight alpha.
 fn demultiply(data: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(data.len());
-    for px in data.chunks_exact(4) {
-        let (r, g, b, a) = (px[0], px[1], px[2], px[3]);
+    for &[r, g, b, a] in data.as_chunks::<4>().0 {
         let (ur, ug, ub) = match a {
             0 => (0, 0, 0),
             255 => (r, g, b),
