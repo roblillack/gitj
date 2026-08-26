@@ -3,18 +3,30 @@
 //! a throwaway repository with a local identity so `commit` can sign.
 
 use std::fs;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use git2::Repository;
 use journey::backend::{ChangeStatus, FixtureBackend, Git2Backend, RepoBackend};
 
 fn scratch_dir(tag: &str) -> std::path::PathBuf {
+    // The clock alone is not unique enough: its resolution on some hosts is
+    // coarser than the gap between two parallel tests asking for the same tag,
+    // and two tests sharing a directory race on `.git/config.lock`. The
+    // sequence number separates them, and `create_dir` (not `create_dir_all`)
+    // turns any collision that still slips through into a loud failure instead
+    // of a repo quietly shared with another test.
+    static SEQ: AtomicU64 = AtomicU64::new(0);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!("journey-{tag}-{}-{nanos}", std::process::id()));
-    fs::create_dir_all(&dir).unwrap();
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!(
+        "journey-{tag}-{}-{nanos}-{seq}",
+        std::process::id()
+    ));
+    fs::create_dir(&dir).unwrap();
     dir
 }
 
