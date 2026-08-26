@@ -10,6 +10,12 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ## [Unreleased] - ReleaseDate
 
+### Changed
+
+- Updated the GUI library, Saudade, to version 0.6 which improves the menu
+  handling, visibility of scrollbar triangles, rendering performance, and
+  rasterizes fonts on macOS using CoreText—using the actual system font. (#19)
+
 ## [0.4.0] - 2026-07-01
 
 ### Added
