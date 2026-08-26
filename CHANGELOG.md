@@ -30,7 +30,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
   font are bundled — so chart labels and text-interface snapshots (terminals,
   TUIs, code) both render the same on every machine. SVG support is on by
   default and can be dropped with `--no-default-features` (SVGs then keep their
-  text diff).
+  text diff). (#18)
 - Multi-selection in the commit screen's file lists: Ctrl/Cmd+click toggles a
   file in and out of the selection, Shift+click (or Shift+Arrow) selects a
   range, and the Stage/Unstage buttons, their menu items (Ctrl+T / Ctrl+U) and
@@ -40,7 +40,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
   checked-out branch; given one (`gitj -r feature/x`, or `--review=feature/x`)
   it pre-selects that branch — matched against either a branch's name or a
   remote folded into its row. An unknown branch warns and falls back to the
-  checked-out one. `--commit` and `--review` cannot be combined.
+  checked-out one. `--commit` and `--review` cannot be combined. (#17)
 
 ### Changed
 
