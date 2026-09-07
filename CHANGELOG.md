@@ -10,6 +10,21 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ## [Unreleased] - ReleaseDate
 
+### Fixed
+
+- Pane borders now collapse exactly onto the neighbouring scrollbar's border
+  at fractional HiDPI scales, using Saudade's new merged frame edges — the two
+  lines used to land a device pixel apart, reading as a doubled or ragged
+  divider. Diff row backgrounds and the commit list's rows are clipped to the
+  frame's device-pixel interior, so the yellow/gray bands no longer overwrite
+  the border's inner pixel at fractional scales.
+
+### Changed
+
+- The commit list's selection band now spans the full field width, border to
+  border (gitk-style), instead of stopping at the text padding. Diff row
+  backgrounds likewise run edge to edge of the field interior.
+
 ## [0.4.1] - 2026-08-26
 
 ### Changed
