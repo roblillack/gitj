@@ -80,7 +80,7 @@ impl CommitList {
             v_scrollbar: ScrollBar::vertical(Rect::new(0, 0, 0, 0)),
             activated: None,
             last_click: None,
-            font_size: 12.0,
+            font_size: 11.0,
         }
     }
 

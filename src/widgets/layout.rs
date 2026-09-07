@@ -169,11 +169,12 @@ const PAD: i32 = 6;
 const GUTTER: i32 = 6;
 const HEADING_H: i32 = 18;
 /// Height of the bottom band reserved for the action buttons on both columns.
-const BTN_BAND_H: i32 = 34;
+const BTN_BAND_H: i32 = 32;
 const BTN_GAP: i32 = 4;
-const LEFT_BTN_H: i32 = 24;
+const LEFT_BTN_H: i32 = COMMIT_BTN_H;
 const AMEND_H: i32 = 24;
-const COMMIT_BTN_H: i32 = 26;
+const COMMIT_BTN_W: i32 = 100;
+const COMMIT_BTN_H: i32 = 22;
 
 pub fn commit_menu(b: Rect) -> Rect {
     Rect::new(b.x, b.y, b.w, MENU_H)
@@ -346,11 +347,10 @@ pub fn commit_amend(b: Rect) -> Rect {
 }
 
 pub fn commit_commit_btn(b: Rect) -> Rect {
-    let w = 110;
     Rect::new(
-        right_inner_x(b) + right_inner_w(b) - w,
+        right_inner_x(b) + right_inner_w(b) - COMMIT_BTN_W,
         btn_y(b, COMMIT_BTN_H),
-        w,
+        COMMIT_BTN_W,
         COMMIT_BTN_H,
     )
 }

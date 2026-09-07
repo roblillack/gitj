@@ -18,7 +18,7 @@ impl Heading {
         Self {
             rect: Rect::new(0, 0, 0, 0),
             text: text.into(),
-            size: 12.0,
+            size: 11.0,
         }
     }
 

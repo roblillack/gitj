@@ -58,7 +58,7 @@ impl ImageDiffView {
             mode: CompareMode::TwoUp,
             last_compare_mode: CompareMode::TwoUp,
             slider: 0.5,
-            font_size: 12.0,
+            font_size: 11.0,
             button_rects: Vec::new(),
             dragging_slider: false,
             dragging_image: false,

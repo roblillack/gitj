@@ -106,7 +106,7 @@ impl DiffView {
             diff: Diff::default(),
             v_scrollbar: ScrollBar::vertical(Rect::new(0, 0, 0, 0)),
             focused: false,
-            font_size: 12.0,
+            font_size: 11.0,
             mode: DiffMode::Plain,
             anchor: None,
             lead: None,
