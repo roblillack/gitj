@@ -11,8 +11,8 @@
 use std::time::{Duration, Instant};
 
 use saudade::{
-    Color, Event, EventCtx, Key, MouseButton, NamedKey, Painter, Point, Rect, SCROLLBAR_THICKNESS,
-    ScrollBar, Theme, Widget,
+    Color, Event, EventCtx, Key, Merged, MouseButton, NamedKey, Painter, Point, Rect,
+    SCROLLBAR_THICKNESS, ScrollBar, Theme, Widget,
 };
 
 use crate::backend::{RefKind, RefLabel};
@@ -249,17 +249,29 @@ impl Widget for CommitList {
     fn paint(&mut self, painter: &mut Painter, theme: &Theme) {
         self.sync_scrollbar();
         let text = self.text_area();
+        // The field's right edge sits on the scrollbar's own left border (see
+        // `text_area`), so it is a merged edge: the border line lands on the
+        // scrollbar's border pixels at every scale.
+        let merged = if self.v_scrollbar.rect().w > 0 {
+            Merged::RIGHT
+        } else {
+            Merged::NONE
+        };
         painter.fill_rect(text, Color::WHITE);
-        painter.sunken_bevel(text, theme.highlight, theme.shadow);
-        painter.stroke_rect(text, theme.border);
+        painter.sunken_bevel_merged(text, merged, theme.highlight, theme.shadow);
+        painter.stroke_rect_merged(text, merged, theme.border);
 
         let text_x = text.x + TEXT_PAD_X;
         let text_y0 = text.y + TEXT_PAD_Y;
-        let row_w = (text.w - TEXT_PAD_X * 2).max(0);
         let visible = self.visible_rows() as usize;
         let scroll_top = self.scroll_top();
         let row_right = text.right() - TEXT_PAD_X;
         let graph_w = self.graph_width();
+
+        // Clip everything to the frame's interior, so rows (and the selection
+        // band, painted edge to edge) stop on exactly the border line's device
+        // pixels instead of bleeding into it at fractional scales.
+        let saved_clip = painter.push_clip_frame(text, 1, merged);
 
         for row_offset in 0..visible {
             let row = scroll_top + row_offset;
@@ -275,7 +287,9 @@ impl Widget for CommitList {
                 } else {
                     theme.face
                 };
-                painter.fill_rect(Rect::new(text_x, y, row_w, ROW_HEIGHT), bg);
+                // The band spans the full field width — gitk-style, border to
+                // border — with the frame clip trimming it to the interior.
+                painter.fill_rect(Rect::new(text.x, y, text.w, ROW_HEIGHT), bg);
             }
             let fg = if active {
                 theme.highlight_text
@@ -315,6 +329,8 @@ impl Widget for CommitList {
                 painter.restore_clip(saved);
             }
         }
+
+        painter.restore_clip(saved_clip);
 
         self.v_scrollbar.paint(painter, theme);
     }

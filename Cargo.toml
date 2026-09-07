@@ -50,7 +50,7 @@ default = ["svg"]
 svg = ["dep:resvg"]
 
 [dependencies]
-saudade = "0.6"
+saudade = { path = "../saudade" }
 git2 = { version = "0.18", default-features = false }
 # Decodes the image blobs the graphical diff compares. A trimmed feature set
 # (the raster formats people actually commit) keeps the build light.

@@ -12,7 +12,7 @@
 //! widgets, hand-drawing its buttons and slider and tracking their hit-rects,
 //! so the cross-pane wiring in [`crate::ui`] stays simple.
 
-use saudade::{Color, Event, EventCtx, MouseButton, Painter, Point, Rect, Theme, Widget};
+use saudade::{Color, Event, EventCtx, Merged, MouseButton, Painter, Point, Rect, Theme, Widget};
 
 use crate::imagediff::{CompareMode, ImageComparison};
 
@@ -314,7 +314,9 @@ impl Widget for ImageDiffView {
         painter.sunken_bevel(field, theme.highlight, theme.shadow);
         painter.stroke_rect(field, theme.border);
 
-        let saved = painter.push_clip(field.inset(1));
+        // Clip to the frame's interior so content stops on exactly the border
+        // line's device pixels at fractional scales.
+        let saved = painter.push_clip_frame(field, 1, Merged::NONE);
         self.paint_meta(painter);
         self.paint_image(painter);
         self.paint_slider(painter, theme);
