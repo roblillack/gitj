@@ -214,6 +214,19 @@ fn commit_mode() {
     });
 }
 
+/// The commit screen at a narrow width: the left column shrinks to a third of
+/// the window and the Stage / Unstage / Rescan buttons drop their words,
+/// keeping just their icons.
+#[test]
+fn commit_mode_narrow() {
+    snapshot("commit_mode_narrow", 640, CH, || {
+        let mut client = sample_client();
+        client.enter_commit_mode();
+        client.focus_first();
+        Box::new(client)
+    });
+}
+
 /// Encode a `128×96` PNG: a blue field with a red square at `(sq_x, sq_y)`, so
 /// the two sides of the demo image differ visibly.
 fn demo_png(sq_x: u32, sq_y: u32) -> Vec<u8> {

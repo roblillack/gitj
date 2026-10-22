@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="12" height="12" viewBox="0 0 12 12">
+  <title>unstage.svg</title>
+  <g id="Layer_1" data-name="Layer 1">
+    <path d="M1.5 9.5 L10.5 9.5 L10.5 11 L1.5 11 Z" fill="#000000"/>
+    <path d="M5.25 5.5 L6.75 5.5 L6.75 9.5 L5.25 9.5 Z" fill="#000000"/>
+    <path d="M1 5.5 L11 5.5 L6 1 Z" fill="#000000"/>
+  </g>
+</svg>

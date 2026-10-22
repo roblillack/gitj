@@ -272,24 +272,19 @@ impl GitClient {
             Rect::new(0, 0, 0, 0),
             "Amend last commit",
         )));
-        // Created with the wide (symbol + text) labels; `layout` swaps them for
-        // symbol-only when the window is narrow.
+        // Created with the wide (icon + text) labels; `layout` drops the text
+        // for icon-only when the window is narrow.
         let [stage_lbl, unstage_lbl, rescan_lbl] = left_btn_labels(false);
-        let stage_btn = Rc::new(RefCell::new(command_button(
-            stage_lbl,
-            &commands,
-            AppCommand::StageSelected,
-        )));
-        let unstage_btn = Rc::new(RefCell::new(command_button(
-            unstage_lbl,
-            &commands,
-            AppCommand::UnstageSelected,
-        )));
-        let rescan_btn = Rc::new(RefCell::new(command_button(
-            rescan_lbl,
-            &commands,
-            AppCommand::Rescan,
-        )));
+        let stage_btn = Rc::new(RefCell::new(
+            command_button(stage_lbl, &commands, AppCommand::StageSelected).with_icon(STAGE_ICON),
+        ));
+        let unstage_btn = Rc::new(RefCell::new(
+            command_button(unstage_lbl, &commands, AppCommand::UnstageSelected)
+                .with_icon(UNSTAGE_ICON),
+        ));
+        let rescan_btn = Rc::new(RefCell::new(
+            command_button(rescan_lbl, &commands, AppCommand::Rescan).with_icon(RESCAN_ICON),
+        ));
 
         // No flat background fill: the staging panes float on the window's
         // desktop pattern (git-gui style), which shows through the gaps.
@@ -430,7 +425,7 @@ impl GitClient {
 
     /// Apply width-only affordances: in narrow mode the Stage/Unstage/Rescan
     /// buttons shrink to share a third-width column (see `layout`), so they drop
-    /// their text and keep just the symbol. Cheap no-op when the state is
+    /// their text and keep just the icon. Cheap no-op when the state is
     /// unchanged.
     fn apply_narrow(&mut self, narrow: bool) {
         if narrow == self.narrow {
@@ -1681,18 +1676,24 @@ fn about_item(dialog: &Rc<RefCell<Dialog>>) -> MenuItem {
     })
 }
 
-/// A push button that pushes `command` onto the deferred-command queue.
-/// Labels for the Stage / Unstage / Rescan buttons. The arrow-from-bar and
-/// refresh symbols always lead; in narrow mode that's all there's room for, so
-/// the words are dropped.
+/// The arrow-from-bar and refresh glyphs leading the Stage / Unstage / Rescan
+/// buttons. Baked from `assets/buttons/` rather than spelled as Unicode arrows
+/// (U+21A7, U+21A5, U+21BB), which not every system font carries.
+const STAGE_ICON: SvgImage = include_svg!("assets/buttons/stage.svg");
+const UNSTAGE_ICON: SvgImage = include_svg!("assets/buttons/unstage.svg");
+const RESCAN_ICON: SvgImage = include_svg!("assets/buttons/rescan.svg");
+
+/// Labels for the Stage / Unstage / Rescan buttons. Their icons always lead; in
+/// narrow mode that's all there's room for, so the words are dropped.
 fn left_btn_labels(narrow: bool) -> [&'static str; 3] {
     if narrow {
-        ["\u{21A7}", "\u{21A5}", "\u{21BB}"]
+        ["", "", ""]
     } else {
-        ["\u{21A7} Stage", "\u{21A5} Unstage", "\u{21BB} Rescan"]
+        ["Stage", "Unstage", "Rescan"]
     }
 }
 
+/// A push button that pushes `command` onto the deferred-command queue.
 fn command_button(
     label: &str,
     commands: &Rc<RefCell<Vec<AppCommand>>>,
