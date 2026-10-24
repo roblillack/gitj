@@ -219,7 +219,7 @@ fn commit_mode() {
 /// keeping just their icons.
 #[test]
 fn commit_mode_narrow() {
-    snapshot("commit_mode_narrow", 640, CH, || {
+    snapshot("commit_mode_narrow", 560, CH, || {
         let mut client = sample_client();
         client.enter_commit_mode();
         client.focus_first();

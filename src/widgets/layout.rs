@@ -13,7 +13,7 @@ pub const MENU_H: i32 = 20;
 /// Height of the search toolbar below the menu.
 pub const TOOLBAR_H: i32 = 26;
 /// Width of the changed-files pane on the lower left.
-pub const FILES_W: i32 = 300;
+pub const FILES_W: i32 = 225;
 /// Fraction of the content height given to the history pane.
 pub const HISTORY_FRAC: f32 = 0.46;
 /// Slight breathing room around — and between — the three browse panes
@@ -23,7 +23,9 @@ pub const BROWSE_PAD: i32 = 4;
 /// At or below this logical window width the left pane (the browse files list
 /// and the commit file lists) is capped at a third of the width, so the diff
 /// and the other right-hand panes keep the lion's share of a cramped window.
-pub const NARROW_W: i32 = 800;
+/// The commit screen's Stage / Unstage / Rescan buttons also drop their text
+/// here: the capped column leaves them too narrow for icon and label.
+pub const NARROW_W: i32 = 600;
 
 /// A third of the window width — the cap applied to the left pane on narrow
 /// windows. `None` above [`NARROW_W`], where the fixed widths stand.
@@ -161,7 +163,10 @@ pub fn review_diff(b: Rect) -> Rect {
 // "Diff", "Staged Changes" with "Commit Message" — and the action buttons share
 // one baseline.
 
-const LEFT_W: i32 = 320;
+/// Width of the left (file list) column above [`NARROW_W`]. Just wide enough
+/// for each of the three action buttons below the lists to fit its icon and
+/// bold label.
+const LEFT_W: i32 = 240;
 /// Margin between the panes and the window edges.
 const PAD: i32 = 6;
 /// Space between the two columns, split evenly across the `LEFT_W` divider.
