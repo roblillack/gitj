@@ -11,7 +11,11 @@ use std::rc::Rc;
 
 use journey::backend::{Git2Backend, RepoBackend};
 use journey::ui::GitClient;
-use saudade::{App, Theme, WindowConfig};
+use saudade::{App, SvgImage, Theme, WindowConfig, include_svg};
+
+/// The program icon: the title bar and taskbar on Windows, the window
+/// switcher on X11/Wayland, the dock tile on macOS.
+const ICON: SvgImage = include_svg!("assets/icon.svg");
 
 const WINDOW_W: i32 = 900;
 const WINDOW_H: i32 = 640;
@@ -208,7 +212,8 @@ fn main() -> ExitCode {
     App::new(
         WindowConfig::new(title, WINDOW_W, WINDOW_H)
             .resizable(true)
-            .min_size(MIN_WINDOW_W, MIN_WINDOW_H),
+            .min_size(MIN_WINDOW_W, MIN_WINDOW_H)
+            .icon(ICON),
         root,
     )
     .with_theme(Theme::windows_31())
