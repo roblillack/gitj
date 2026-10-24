@@ -21,6 +21,11 @@ While pre-1.0, the minor version is bumped for breaking changes.
   draws a bit larger, closer to the screens the Windows 3.1 look was designed
   for. Fonts, spacing, button corners and bevels also look cleaner at high
   scales, and lots of bugs were fixed. (#20)
+- The window opens at the same size on screen as before Saudade 0.7, and the
+  file lists on the left of every screen narrow to match, so the diff keeps
+  its share of the window. The commit screen's Stage / Unstage / Rescan
+  buttons now drop their text only when the window is narrower than 600
+  logical pixels, instead of 800.
 
 ### Fixed
 

@@ -17,8 +17,10 @@ use saudade::{App, SvgImage, Theme, WindowConfig, include_svg};
 /// switcher on X11/Wayland, the dock tile on macOS.
 const ICON: SvgImage = include_svg!("assets/icon.svg");
 
-const WINDOW_W: i32 = 900;
-const WINDOW_H: i32 = 640;
+/// Initial window size, in logical pixels. Saudade's logical pixel targets
+/// 72 dpi, so this opens at the same physical size 900×640 did at 96 dpi.
+const WINDOW_W: i32 = 675;
+const WINDOW_H: i32 = 480;
 /// Floor on the resizable window, so the panes never collapse past the point
 /// where the narrow (third-width) commit/browse layout still works.
 const MIN_WINDOW_W: i32 = 450;
