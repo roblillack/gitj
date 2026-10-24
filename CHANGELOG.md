@@ -18,9 +18,8 @@ While pre-1.0, the minor version is bumped for breaking changes.
   divider. Diff row backgrounds and the commit list's rows are clipped to the
   frame's device-pixel interior, so the yellow/gray bands no longer overwrite
   the border's inner pixel at fractional scales. (#20)
-- The Stage / Unstage / Rescan buttons draw their arrow icons as vector
-  graphics instead of Unicode arrows (↧ ↥ ↻), which showed up as empty boxes
-  on systems whose fonts lack those glyphs.
+- The Stage / Unstage / Rescan buttons now use SVG icons instead of Unicode
+  arrows, which showed up as empty boxes with some fonts. (#21)
 
 ### Changed
 
