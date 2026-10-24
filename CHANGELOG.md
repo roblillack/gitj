@@ -17,13 +17,13 @@ While pre-1.0, the minor version is bumped for breaking changes.
   lines used to land a device pixel apart, reading as a doubled or ragged
   divider. Diff row backgrounds and the commit list's rows are clipped to the
   frame's device-pixel interior, so the yellow/gray bands no longer overwrite
-  the border's inner pixel at fractional scales.
+  the border's inner pixel at fractional scales. (#20)
 
 ### Changed
 
 - The commit list's selection band now spans the full field width, border to
   border (gitk-style), instead of stopping at the text padding. Diff row
-  backgrounds likewise run edge to edge of the field interior.
+  backgrounds likewise run edge to edge of the field interior. (#20)
 
 ## [0.4.1] - 2026-08-26
 
@@ -163,6 +163,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
 Initial release.
 
 <!-- next-url -->
+
 [Unreleased]: https://github.com/roblillack/gitj/compare/v0.4.1...HEAD
 [0.4.1]: https://github.com/roblillack/gitj/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/roblillack/gitj/compare/v0.3.0...v0.4.0
