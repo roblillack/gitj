@@ -267,6 +267,7 @@ impl Widget for CommitList {
         let scroll_top = self.scroll_top();
         let row_right = text.right() - TEXT_PAD_X;
         let graph_w = self.graph_width();
+        let date_w = date_col_width(painter, self.font_size);
 
         // Clip everything to the frame's interior, so rows (and the selection
         // band, painted edge to edge) stop on exactly the border line's device
@@ -304,9 +305,9 @@ impl Widget for CommitList {
                 draw_graph_row(painter, grow, text_x, y);
             }
 
-            // Right-aligned date, then author column to its left.
-            let date_size = painter.measure_text(&data.date, self.font_size);
-            let date_x = row_right - date_size.w;
+            // Fixed-width date column at the right, author column to its left;
+            // both left-aligned so every row's columns start at the same x.
+            let date_x = row_right - date_w;
             let author_x = date_x - COL_GAP - AUTHOR_COL_W;
             let label_y = y + (ROW_HEIGHT - self.font_size as i32) / 2 - 1;
 
@@ -436,6 +437,20 @@ impl Widget for CommitList {
         ));
         self.ensure_selection_visible();
     }
+}
+
+/// Width of the date column: the widest `YYYY-MM-DD HH:MM` the UI font can
+/// draw. Its digits are proportional, so sizing to any one row's date would let
+/// the column (and the author column left of it) drift from row to row.
+fn date_col_width(painter: &Painter, font_size: f32) -> i32 {
+    let widest_digit = ('0'..='9')
+        .max_by_key(|d| painter.measure_text(&d.to_string(), font_size).w)
+        .unwrap_or('0');
+    let template: String = "0000-00-00 00:00"
+        .chars()
+        .map(|c| if c == '0' { widest_digit } else { c })
+        .collect();
+    painter.measure_text(&template, font_size).w
 }
 
 /// Paint one row of the commit graph in the left gutter starting at `gutter_x`.
