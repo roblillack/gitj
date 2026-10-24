@@ -10,6 +10,10 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ## [Unreleased] - ReleaseDate
 
+### Added
+
+- A program icon. (#23)
+
 ### Fixed
 
 - Pane borders now collapse exactly onto the neighbouring scrollbar's border
