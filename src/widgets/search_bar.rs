@@ -39,6 +39,16 @@ impl SearchBar {
         self.input.set_text("");
     }
 
+    /// Select the whole query, so typing replaces it.
+    pub fn select_all(&mut self) {
+        // Leave an empty field alone: saudade's `select_all` would plant a
+        // collapsed selection anchor there that typing doesn't clear, so the
+        // second typed character would replace the first.
+        if !self.input.text().is_empty() {
+            self.input.select_all();
+        }
+    }
+
     fn relayout(&mut self) {
         let x = self.bounds.x + PAD + self.label_w + PAD;
         let input_rect = Rect::new(

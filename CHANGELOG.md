@@ -12,6 +12,9 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ### Added
 
+- Ctrl+F (⌘F on macOS), or the new Edit ▸ Find menu item, jumps to the search
+  field on the browse screen. It selects the query already there, so typing
+  replaces it.
 - A program icon, shown in the title bar and taskbar on Windows, the window
   switcher on X11 / Wayland, and the dock on macOS. (#23)
 

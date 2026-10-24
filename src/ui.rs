@@ -32,6 +32,8 @@ use crate::widgets::{
     layout,
 };
 
+/// Direct-child index of the search field in the browse shell.
+const BROWSE_SEARCH_IDX: usize = 1;
 /// Direct-child index of the history list in the browse shell (focused first).
 const BROWSE_HISTORY_IDX: usize = 2;
 /// Direct-child index of the unstaged list in the commit shell.
@@ -82,6 +84,9 @@ enum AppCommand {
     EnterCommitMode,
     EnterBrowseMode,
     EnterReviewMode,
+    /// Focus the browse screen's search field with its query selected (Edit ▸
+    /// Find, Ctrl+F).
+    FocusSearch,
     Rescan,
     StageSelected,
     StageAll,
@@ -473,6 +478,7 @@ impl GitClient {
                 AppCommand::EnterCommitMode => self.set_mode(Mode::Commit),
                 AppCommand::EnterBrowseMode => self.set_mode(Mode::Browse),
                 AppCommand::EnterReviewMode => self.set_mode(Mode::Review),
+                AppCommand::FocusSearch => self.focus_search(),
                 AppCommand::Rescan => {
                     self.rescan();
                     true
@@ -523,6 +529,17 @@ impl GitClient {
     }
 
     // ---- browse screen ----------------------------------------------------
+
+    /// Focus the search field and select its query, so typing replaces it
+    /// (no-op off the browse screen, the only one with a search field).
+    fn focus_search(&mut self) -> bool {
+        if self.mode != Mode::Browse {
+            return false;
+        }
+        self.browse_root.focus_child(BROWSE_SEARCH_IDX);
+        self.search.borrow_mut().select_all();
+        true
+    }
 
     /// Reload browse panes from the current selection state. Double-clicking a
     /// working-tree pseudo-row jumps to the commit screen; otherwise, when the
@@ -1522,9 +1539,11 @@ impl Widget for GitClient {
     }
 }
 
-/// Build the browse-screen menu bar: File ▸ Reload / Exit, View ▸ the mode
-/// switches + the image-diff actions, Help ▸ About. The review screen carries
-/// no actions of its own, so it uses this same bar.
+/// Build the browse-screen menu bar: File ▸ Reload / Exit, Edit ▸ Find, View ▸
+/// the mode switches + the image-diff actions, Help ▸ About. The review screen
+/// carries no actions of its own, so it uses this same bar; Find is greyed
+/// there (read live from `nav`), as only the browse screen has a search field,
+/// and its Ctrl+F falls through to the focused pane.
 fn build_browse_menu(
     commands: Rc<RefCell<Vec<AppCommand>>>,
     dialog: Rc<RefCell<Dialog>>,
@@ -1534,6 +1553,7 @@ fn build_browse_menu(
     let mut view = mode_items(&commands, &nav);
     view.push(MenuItem::separator());
     view.extend(image_view_items(&commands, &nav));
+    let browsing = move || nav.borrow().mode == Mode::Browse;
     MenuBar::new(Rect::new(0, 0, 0, 0))
         .with_scheme(scheme)
         .add_menu(Menu::new(
@@ -1542,6 +1562,14 @@ fn build_browse_menu(
                 cmd_item("&Reload", &commands, AppCommand::Reload),
                 MenuItem::separator(),
                 MenuItem::action("E&xit", |cx| cx.close()).with_accel("Ctrl+Q"),
+            ],
+        ))
+        .add_menu(Menu::new(
+            "&Edit",
+            vec![
+                cmd_item("&Find", &commands, AppCommand::FocusSearch)
+                    .with_accel("Ctrl+F")
+                    .with_enabled(browsing),
             ],
         ))
         .add_menu(Menu::new("&View", view))
@@ -2399,5 +2427,89 @@ mod review_tests {
         assert!(!client.enter_review_mode(Some("no/such/branch")));
         // The screen still opens, on the checked-out branch.
         assert_eq!(client.branch_list.borrow().selected_index(), Some(0));
+    }
+}
+
+#[cfg(test)]
+mod find_tests {
+    use super::*;
+    use crate::backend::FixtureBackend;
+    use saudade::mock::MockBackend;
+    use saudade::{Key, Modifiers, NamedKey};
+
+    const W: i32 = 760;
+    const H: i32 = 520;
+
+    /// A fixture-backed browse-screen client, laid out and focused on the
+    /// commit list as the live app starts.
+    fn browse_client(scheme: ModifierScheme) -> GitClient {
+        let mut client = GitClient::with_menu_scheme(Rc::new(FixtureBackend::sample()), scheme);
+        client.layout(Rect::new(0, 0, W, H));
+        client.focus_first();
+        client
+    }
+
+    fn key_down(key: Key, modifiers: Modifiers) -> Event {
+        Event::KeyDown { key, modifiers }
+    }
+
+    fn ctrl_f() -> Event {
+        let control = Modifiers {
+            control: true,
+            ..Modifiers::default()
+        };
+        key_down(Key::Char('f'), control)
+    }
+
+    fn type_text(client: &mut GitClient, mock: &MockBackend, s: &str) {
+        for ch in s.chars() {
+            let modifiers = Modifiers::default();
+            mock.dispatch(client, &Event::Char { ch, modifiers });
+        }
+    }
+
+    #[test]
+    fn ctrl_f_focuses_the_search_field() {
+        let mock = MockBackend::new(W, H);
+        let mut client = browse_client(ModifierScheme::Pc);
+
+        mock.dispatch(&mut client, &ctrl_f());
+        type_text(&mut client, &mock, "rename");
+
+        assert_eq!(client.search.borrow().text(), "rename");
+        assert_eq!(client.last_query, "rename", "the typed query filters");
+    }
+
+    #[test]
+    fn ctrl_f_selects_the_query_so_typing_replaces_it() {
+        let mock = MockBackend::new(W, H);
+        let mut client = browse_client(ModifierScheme::Pc);
+        mock.dispatch(&mut client, &ctrl_f());
+        type_text(&mut client, &mock, "rename");
+        // Tab on to the commit list, then come back with Ctrl+F.
+        mock.dispatch(
+            &mut client,
+            &key_down(Key::Named(NamedKey::Tab), Modifiers::default()),
+        );
+
+        mock.dispatch(&mut client, &ctrl_f());
+        type_text(&mut client, &mock, "list");
+
+        assert_eq!(client.search.borrow().text(), "list");
+    }
+
+    #[test]
+    fn cmd_f_focuses_the_search_field_under_the_mac_scheme() {
+        let mock = MockBackend::new(W, H);
+        let mut client = browse_client(ModifierScheme::Mac);
+        let logo = Modifiers {
+            logo: true,
+            ..Modifiers::default()
+        };
+
+        mock.dispatch(&mut client, &key_down(Key::Char('f'), logo));
+        type_text(&mut client, &mock, "rename");
+
+        assert_eq!(client.search.borrow().text(), "rename");
     }
 }
