@@ -25,7 +25,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
   file lists on the left of every screen narrow to match, so the diff keeps
   its share of the window. The commit screen's Stage / Unstage / Rescan
   buttons now drop their text only when the window is narrower than 600
-  logical pixels, instead of 800.
+  logical pixels, instead of 800. (#25)
 
 ### Fixed
 
