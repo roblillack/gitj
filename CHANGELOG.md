@@ -24,6 +24,10 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ### Fixed
 
+- The author and date columns in the commit and branch lists now line up from
+  row to row. The date column was sized to each row's own date, and since the
+  interface font's digits differ in width, both columns shifted by a few pixels
+  between rows.
 - Pane borders now collapse exactly onto the neighbouring scrollbar's border
   at fractional HiDPI scales, using Saudade's new merged frame edges — the two
   lines used to land a device pixel apart, reading as a doubled or ragged
