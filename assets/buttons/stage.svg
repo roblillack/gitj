@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="12" height="12" viewBox="0 0 12 12">
+  <title>stage.svg</title>
+  <g id="Layer_1" data-name="Layer 1">
+    <path d="M10.5 2.5 L1.5 2.5 L1.5 1 L10.5 1 Z" fill="#000000"/>
+    <path d="M6.75 6.5 L5.25 6.5 L5.25 2.5 L6.75 2.5 Z" fill="#000000"/>
+    <path d="M11 6.5 L1 6.5 L6 11 Z" fill="#000000"/>
+  </g>
+</svg>

@@ -17,12 +17,13 @@ categories = ["gui", "development-tools"]
 # fonts, the screenshots example, the ~1 MB docs/ PNGs, or CI config. crates.io
 # renders the README's relative images from the `repository`, so dropping docs/
 # from the package doesn't affect the rendered crate page.
-# `assets/status/*.svg` are baked by `include_svg!` at *build* time, including
-# the downstream build of the published crate, so they must travel in the
-# package or a fresh `cargo install gitj` would fail to compile. The bundled
-# fonts (a proportional and a monospace face) are likewise `include_bytes!`'d
-# into the `svg` feature, with their licenses travelling alongside them.
-include = ["src/**/*.rs", "assets/status/*.svg", "assets/fonts/*.ttf", "assets/fonts/LICENSE.md", "assets/fonts/IBMPlexMono-OFL.txt", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE"]
+# `assets/status/*.svg` and `assets/buttons/*.svg` are baked by `include_svg!`
+# at *build* time, including the downstream build of the published crate, so
+# they must travel in the package or a fresh `cargo install gitj` would fail to
+# compile. The bundled fonts (a proportional and a monospace face) are likewise
+# `include_bytes!`'d into the `svg` feature, with their licenses travelling
+# alongside them.
+include = ["src/**/*.rs", "assets/status/*.svg", "assets/buttons/*.svg", "assets/fonts/*.ttf", "assets/fonts/LICENSE.md", "assets/fonts/IBMPlexMono-OFL.txt", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE"]
 
 # cargo-release settings. Single crate, no workspace, so everything lives here
 # (unlike saudade, which splits the workspace-wide defaults into release.toml).
