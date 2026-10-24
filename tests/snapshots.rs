@@ -166,7 +166,8 @@ fn main_screen_filtered() {
         H,
         || Box::new(sample_client()),
         || {
-            let mut events = vec![click(200, 33)]; // focus the search field (below the menu)
+            // Focus the search field (below the menu).
+            let mut events = vec![click(200, 33), release(200, 33)];
             events.extend(type_text("rename"));
             events
         },

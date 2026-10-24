@@ -86,6 +86,8 @@ diff.
   `HEAD`). Selecting one previews its files and diff; **double-clicking** it
   (or pressing Enter) opens the commit screen.
 * **Search / filter** the history live by message, author, ref or SHA.
+  **Edit ▸ Find** (Ctrl+F) jumps to the search field, selecting the query
+  already there so typing replaces it.
 
 ### Commit
 
@@ -131,10 +133,11 @@ diff.
 
 ### Throughout
 
-* **Menu bar** (File ▸ Reload / Exit; Commit ▸ the staging actions, on the
-  commit screen; View ▸ the screen switches and image-diff actions; Help ▸
-  About) with Alt-accelerators, each item's shortcut shown next to it, and a
-  modal About / error dialog.
+* **Menu bar** (File ▸ Reload / Exit; Edit ▸ Find, on the browse and review
+  screens; Commit ▸ the staging actions, on the commit screen; View ▸ the
+  screen switches and image-diff actions; Help ▸ About) with
+  Alt-accelerators, each item's shortcut shown next to it, and a modal About /
+  error dialog.
 * Keyboard navigation: Tab cycles the panes, arrows/PageUp/Down drive the
   focused list or scroll the diff.
 * Mouse-wheel and trackpad scrolling in every list and diff pane, under the
@@ -152,6 +155,7 @@ Ctrl.
 | Ctrl+M | Switch the image comparison mode | all |
 | Ctrl+Left / Ctrl+Right | Show only the before / after image | all |
 | Ctrl+Q | Quit | all |
+| Ctrl+F | Focus the search field | browse |
 | Ctrl+T | Stage the selected file(s) | commit |
 | Ctrl+I | Stage all changes | commit |
 | Ctrl+U | Unstage the selected file(s) | commit |
