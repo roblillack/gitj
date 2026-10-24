@@ -17,8 +17,8 @@
 //! [`set_mode`]: DiffView::set_mode
 
 use saudade::{
-    Color, Event, EventCtx, FontFamily, FontStyle, Key, MouseButton, NamedKey, Painter, Point,
-    Rect, SCROLLBAR_THICKNESS, ScrollBar, Theme, Widget,
+    Color, Event, EventCtx, FontFamily, FontStyle, Key, Merged, MouseButton, NamedKey, Painter,
+    Point, Rect, SCROLLBAR_THICKNESS, ScrollBar, Theme, Widget,
 };
 
 use crate::backend::{Diff, DiffLineKind, is_change_line};
@@ -106,7 +106,7 @@ impl DiffView {
             diff: Diff::default(),
             v_scrollbar: ScrollBar::vertical(Rect::new(0, 0, 0, 0)),
             focused: false,
-            font_size: 12.0,
+            font_size: 11.0,
             mode: DiffMode::Plain,
             anchor: None,
             lead: None,
@@ -259,6 +259,18 @@ impl DiffView {
         )
     }
 
+    /// Which edges of the text field sit on a neighbouring frame line: the
+    /// right one, when the field overlaps the scrollbar (see `text_area`).
+    /// Passed to the merged chrome / frame-clip calls so the field's border
+    /// lands on the scrollbar's own border pixels at every scale.
+    fn merged(&self) -> Merged {
+        if self.v_scrollbar.rect().w > 0 {
+            Merged::RIGHT
+        } else {
+            Merged::NONE
+        }
+    }
+
     fn visible_rows(&self) -> i32 {
         ((self.text_area().h - TEXT_PAD_Y * 2) / self.line_height()).max(1)
     }
@@ -350,7 +362,7 @@ impl DiffView {
         let y1 = text_y0 + (vis_hi - top + 1) as i32 * line_h;
         let sel = Rect::new(text.x + 1, y0, row_w, y1 - y0);
 
-        let saved = painter.push_clip(text.inset(1));
+        let saved = painter.push_clip_frame(text, 1, self.merged());
         // Stipple each selected content row; a header caught inside a cross-hunk
         // span stays clean (it is never part of the selection).
         for r in vis_lo..=vis_hi {
@@ -403,9 +415,10 @@ impl Widget for DiffView {
     fn paint(&mut self, painter: &mut Painter, theme: &Theme) {
         self.sync_scrollbar();
         let text = self.text_area();
+        let merged = self.merged();
         painter.fill_rect(text, Color::WHITE);
-        painter.sunken_bevel(text, theme.highlight, theme.shadow);
-        painter.stroke_rect(text, theme.border);
+        painter.sunken_bevel_merged(text, merged, theme.highlight, theme.shadow);
+        painter.stroke_rect_merged(text, merged, theme.border);
 
         let line_h = self.line_height();
         let text_x = text.x + TEXT_PAD_X;
@@ -414,8 +427,11 @@ impl Widget for DiffView {
         let visible = self.visible_rows() as usize;
         let scroll_top = self.scroll_top();
 
-        // Clip so long lines don't bleed across the scrollbar or the border.
-        let saved = painter.push_clip(text.inset(1));
+        // Clip to the frame's interior so long lines don't bleed across the
+        // scrollbar or the border — and so the row backgrounds below, painted
+        // edge to edge, stop on exactly the border line's device pixels
+        // instead of a logically-snapped boundary a pixel to either side.
+        let saved = painter.push_clip_frame(text, 1, merged);
         for row_offset in 0..visible {
             let row = scroll_top + row_offset;
             let Some(line) = self.diff.lines.get(row) else {
@@ -424,7 +440,8 @@ impl Widget for DiffView {
             let y = text_y0 + row_offset as i32 * line_h;
             let (fg, bg) = colors_for(line.kind);
             if let Some(bg) = bg {
-                painter.fill_rect(Rect::new(text.x + 1, y, row_w, line_h), bg);
+                // Full field width; the frame clip trims it to the interior.
+                painter.fill_rect(Rect::new(text.x, y, text.w, line_h), bg);
             }
             let label_y = y + (line_h - self.font_size as i32) / 2 - 1;
             painter.text_styled(
