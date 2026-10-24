@@ -12,7 +12,15 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ### Added
 
-- A program icon. (#23)
+- A program icon, shown in the title bar and taskbar on Windows, the window
+  switcher on X11 / Wayland, and the dock on macOS. (#23)
+
+### Changed
+
+- Updated the GUI library, Saudade, to version 0.7. The whole interface now
+  draws a bit larger, closer to the screens the Windows 3.1 look was designed
+  for. Fonts, spacing, button corners and bevels also look cleaner at high
+  scales, and lots of bugs were fixed. (#20)
 
 ### Fixed
 
@@ -24,12 +32,6 @@ While pre-1.0, the minor version is bumped for breaking changes.
   the border's inner pixel at fractional scales. (#20)
 - The Stage / Unstage / Rescan buttons now use SVG icons instead of Unicode
   arrows, which showed up as empty boxes with some fonts. (#21)
-
-### Changed
-
-- The commit list's selection band now spans the full field width, border to
-  border (gitk-style), instead of stopping at the text padding. Diff row
-  backgrounds likewise run edge to edge of the field interior. (#20)
 
 ## [0.4.1] - 2026-08-26
 
