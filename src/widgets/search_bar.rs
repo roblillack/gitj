@@ -4,7 +4,7 @@
 //! toolbar reads clearly without needing a horizontal layout container. The
 //! app polls [`SearchBar::text`] after each event to drive live filtering.
 
-use saudade::{Color, Event, EventCtx, Painter, Rect, TextInput, Theme, Widget};
+use saudade::{Event, EventCtx, ModifierScheme, Painter, Rect, TextInput, Theme, Widget};
 
 const PAD: i32 = 4;
 
@@ -27,6 +27,13 @@ impl SearchBar {
         };
         me.relayout();
         me
+    }
+
+    /// Pin the modifier the field's editing chords (copy, paste, select all,
+    /// move by word) take, instead of the build platform's.
+    pub fn with_scheme(mut self, scheme: ModifierScheme) -> Self {
+        self.input = self.input.with_scheme(scheme);
+        self
     }
 
     /// Current query text.
@@ -86,7 +93,7 @@ impl Widget for SearchBar {
             self.bounds.x,
             self.bounds.bottom() - 1,
             self.bounds.w,
-            Color::MID_GRAY,
+            theme.shadow,
         );
         self.input.paint(painter, theme);
     }

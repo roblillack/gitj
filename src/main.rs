@@ -218,7 +218,10 @@ fn main() -> ExitCode {
             .icon(ICON),
         root,
     )
+    // Follow the system's light / dark appearance (or SAUDADE_THEME); the
+    // custom-painted panes take their colors from whichever theme is live.
     .with_theme(Theme::windows_31())
+    .with_dark_theme(Theme::windows_31_dark())
     .run();
 
     ExitCode::SUCCESS

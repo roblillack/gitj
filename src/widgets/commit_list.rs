@@ -17,6 +17,7 @@ use saudade::{
 
 use crate::backend::{RefKind, RefLabel};
 use crate::widgets::graph::{Graph, GraphRow};
+use crate::widgets::palette::Palette;
 
 const ROW_HEIGHT: i32 = 18;
 const TEXT_PAD_X: i32 = 4;
@@ -29,19 +30,9 @@ const DOUBLE_CLICK_MS: u64 = 400;
 /// Logical width of one graph lane.
 const LANE_W: i32 = 14;
 
-/// gitk-style lane palette, indexed by lane column (wraps).
-const LANE_COLORS: [Color; 7] = [
-    Color::rgb(0x00, 0x80, 0x00),
-    Color::rgb(0xC0, 0x00, 0x00),
-    Color::rgb(0x00, 0x00, 0xC0),
-    Color::rgb(0xA0, 0x00, 0xA0),
-    Color::rgb(0x00, 0x80, 0x80),
-    Color::rgb(0xB0, 0x60, 0x00),
-    Color::rgb(0x50, 0x50, 0x50),
-];
-
-fn lane_color(col: usize) -> Color {
-    LANE_COLORS[col % LANE_COLORS.len()]
+/// The gitk-style ink of graph lane `col` (the palette wraps).
+fn lane_color(palette: &Palette, col: usize) -> Color {
+    palette.lanes[col % palette.lanes.len()]
 }
 
 /// One commit's worth of row content.
@@ -257,7 +248,7 @@ impl Widget for CommitList {
         } else {
             Merged::NONE
         };
-        painter.fill_rect(text, Color::WHITE);
+        painter.fill_rect(text, theme.background);
         painter.sunken_bevel_merged(text, merged, theme.highlight, theme.shadow);
         painter.stroke_rect_merged(text, merged, theme.border);
 
@@ -273,6 +264,7 @@ impl Widget for CommitList {
         // band, painted edge to edge) stop on exactly the border line's device
         // pixels instead of bleeding into it at fractional scales.
         let saved_clip = painter.push_clip_frame(text, 1, merged);
+        let palette = Palette::for_theme(theme);
 
         for row_offset in 0..visible {
             let row = scroll_top + row_offset;
@@ -302,7 +294,7 @@ impl Widget for CommitList {
             if let Some(graph) = &self.graph
                 && let Some(grow) = graph.rows.get(row)
             {
-                draw_graph_row(painter, grow, text_x, y);
+                draw_graph_row(painter, palette, grow, text_x, y);
             }
 
             // Fixed-width date column at the right, author column to its left;
@@ -321,7 +313,8 @@ impl Widget for CommitList {
             // Left side: graph gutter (reserved), ref badges, then summary.
             let mut x = text_x + graph_w + 2;
             for r in &data.refs {
-                x += draw_badge(painter, x, y, &r.name, r.kind, self.font_size) + BADGE_GAP;
+                x +=
+                    draw_badge(painter, palette, x, y, &r.name, r.kind, self.font_size) + BADGE_GAP;
             }
             let summary_right = author_x - COL_GAP;
             if summary_right > x {
@@ -454,7 +447,7 @@ fn date_col_width(painter: &Painter, font_size: f32) -> i32 {
 }
 
 /// Paint one row of the commit graph in the left gutter starting at `gutter_x`.
-fn draw_graph_row(painter: &mut Painter, row: &GraphRow, gutter_x: i32, y: i32) {
+fn draw_graph_row(painter: &mut Painter, palette: &Palette, row: &GraphRow, gutter_x: i32, y: i32) {
     let lane_x = |col: usize| gutter_x + col as i32 * LANE_W + LANE_W / 2;
     let top = y;
     let center = y + ROW_HEIGHT / 2;
@@ -469,7 +462,7 @@ fn draw_graph_row(painter: &mut Painter, row: &GraphRow, gutter_x: i32, y: i32) 
             top,
             lane_x(to),
             center,
-            lane_color(from),
+            lane_color(palette, from),
         );
     }
     // Bottom half: from the center down to a lane at the bottom edge. Color by
@@ -481,14 +474,14 @@ fn draw_graph_row(painter: &mut Painter, row: &GraphRow, gutter_x: i32, y: i32) 
             center,
             lane_x(to),
             bottom,
-            lane_color(to),
+            lane_color(palette, to),
         );
     }
     draw_dot(
         painter,
         lane_x(row.node_col),
         center,
-        lane_color(row.node_col),
+        lane_color(palette, row.node_col),
     );
 }
 
@@ -533,20 +526,21 @@ fn draw_dot(painter: &mut Painter, cx: i32, cy: i32, color: Color) {
     }
 }
 
-/// Background color for a ref badge by kind.
-fn badge_color(kind: RefKind) -> Color {
+/// Fill color for a ref badge by kind.
+fn badge_color(palette: &Palette, kind: RefKind) -> Color {
     match kind {
-        RefKind::Head => Color::rgb(0x7C, 0xE0, 0x7C),
-        RefKind::LocalBranch => Color::rgb(0xC4, 0xF0, 0xC4),
-        RefKind::RemoteBranch => Color::rgb(0xF0, 0xCF, 0x9C),
-        RefKind::Tag => Color::rgb(0xF2, 0xEA, 0x9C),
-        RefKind::DetachedHead => Color::rgb(0xBE, 0xDE, 0xF2),
+        RefKind::Head => palette.badge_head,
+        RefKind::LocalBranch => palette.badge_local,
+        RefKind::RemoteBranch => palette.badge_remote,
+        RefKind::Tag => palette.badge_tag,
+        RefKind::DetachedHead => palette.badge_detached,
     }
 }
 
 /// Draw one ref badge and return its drawn width.
 fn draw_badge(
     painter: &mut Painter,
+    palette: &Palette,
     x: i32,
     row_y: i32,
     label: &str,
@@ -558,10 +552,10 @@ fn draw_badge(
     let bh = font_size as i32 + 3;
     let by = row_y + (ROW_HEIGHT - bh) / 2;
     let rect = Rect::new(x, by, bw, bh);
-    painter.fill_rect(rect, badge_color(kind));
-    painter.stroke_rect(rect, Color::BLACK);
+    painter.fill_rect(rect, badge_color(palette, kind));
+    painter.stroke_rect(rect, palette.badge_border);
     let label_y = row_y + (ROW_HEIGHT - font_size as i32) / 2 - 1;
-    painter.text(x + 4, label_y, label, font_size, Color::BLACK);
+    painter.text(x + 4, label_y, label, font_size, palette.badge_text);
     bw
 }
 

@@ -7,6 +7,7 @@ mod graph;
 mod heading;
 mod image_diff_view;
 pub mod layout;
+pub mod palette;
 mod search_bar;
 mod shared;
 mod shell;

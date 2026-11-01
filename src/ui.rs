@@ -211,17 +211,19 @@ impl GitClient {
         Self::with_menu_scheme(backend, ModifierScheme::native())
     }
 
-    /// Like [`GitClient::new`], but pins the accelerator modifier scheme
-    /// instead of using the build platform's. Tests pin [`ModifierScheme::Pc`]
-    /// so chords match and menus render their accel labels identically on
-    /// every host.
+    /// Like [`GitClient::new`], but pins the modifier scheme — of the menu
+    /// accelerators and of the text fields' editing chords alike — instead of
+    /// using the build platform's. Tests pin [`ModifierScheme::Pc`] so chords
+    /// match and menus render their accel labels identically on every host.
     pub fn with_menu_scheme(backend: Rc<dyn RepoBackend>, scheme: ModifierScheme) -> Self {
         let dialog = Rc::new(RefCell::new(Dialog::new()));
         let commands: Rc<RefCell<Vec<AppCommand>>> = Rc::new(RefCell::new(Vec::new()));
         let nav_state: Rc<RefCell<MenuNav>> = Rc::new(RefCell::new(MenuNav::default()));
 
         // Browse-screen widgets.
-        let search = Rc::new(RefCell::new(SearchBar::new(Rect::new(0, 0, 0, 0))));
+        let search = Rc::new(RefCell::new(
+            SearchBar::new(Rect::new(0, 0, 0, 0)).with_scheme(scheme),
+        ));
         let commit_list = Rc::new(RefCell::new(CommitList::new(Rect::new(0, 0, 0, 0))));
         let file_list = Rc::new(RefCell::new(List::new(Rect::new(0, 0, 0, 0))));
         let diff_pane = Rc::new(RefCell::new(DiffPane::new(Rect::new(0, 0, 0, 0))));
@@ -272,7 +274,9 @@ impl GitClient {
         let unstaged_heading = Rc::new(RefCell::new(Heading::new("Unstaged Changes")));
         let staged_heading = Rc::new(RefCell::new(Heading::new("Staged Changes")));
         let commit_diff_pane = Rc::new(RefCell::new(DiffPane::new(Rect::new(0, 0, 0, 0))));
-        let message_editor = Rc::new(RefCell::new(TextEditor::new(Rect::new(0, 0, 0, 0))));
+        let message_editor = Rc::new(RefCell::new(
+            TextEditor::new(Rect::new(0, 0, 0, 0)).with_scheme(scheme),
+        ));
         let amend_check = Rc::new(RefCell::new(Checkbox::new(
             Rect::new(0, 0, 0, 0),
             "Amend last commit",
@@ -1246,7 +1250,7 @@ impl GitClient {
             (
                 "Delete File",
                 format!(
-                    "Delete untracked file\n{display}?\n\nIt is not tracked by git and cannot be recovered."
+                    "Delete the untracked file {display}?\n\nIt is not tracked by git and cannot be recovered."
                 ),
                 "Delete File",
             )
@@ -1255,7 +1259,7 @@ impl GitClient {
             (
                 "Revert Changes",
                 format!(
-                    "Revert unstaged changes in\n{display}?\n\nThese changes will be permanently lost."
+                    "Revert the unstaged changes in {display}?\n\nThese changes will be permanently lost."
                 ),
                 "Revert Changes",
             )
@@ -1698,7 +1702,7 @@ fn about_item(dialog: &Rc<RefCell<Dialog>>) -> MenuItem {
     MenuItem::action("&About", move |cx| {
         dialog.borrow_mut().show_info(
             "About Git Journey",
-            "Git Journey\n\nA gitk-style repository browser\nbuilt on the Saudade toolkit.",
+            "Git Journey\n\nA gitk-style repository browser built on the Saudade toolkit.",
         );
         cx.request_paint();
     })
