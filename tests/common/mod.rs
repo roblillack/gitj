@@ -106,11 +106,36 @@ fn snapshot_one(
     }
 
     let snap = backend.render(widget.as_mut());
+    let png = keep_baseline_if_pixels_match(name, snap.to_png());
     let snap_name = format!("{name}.png");
     let mut settings = insta::Settings::clone_current();
     settings.set_prepend_module_to_snapshot(false);
     settings.set_snapshot_path("../snapshots");
     settings.bind(|| {
-        insta::assert_binary_snapshot!(snap_name.as_str(), snap.to_png());
+        insta::assert_binary_snapshot!(snap_name.as_str(), png);
     });
+}
+
+/// insta compares binary snapshots byte-for-byte, but the same pixels encode to
+/// different PNG bytes whenever the deflate backend changes (an `fdeflate`
+/// patch release did exactly that), failing every baseline with nothing
+/// visibly different. So when `png` decodes to the same pixels as the checked-in
+/// baseline, hand insta the baseline's own bytes; only real visual changes
+/// reach the comparison.
+fn keep_baseline_if_pixels_match(name: &str, png: Vec<u8>) -> Vec<u8> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/snapshots")
+        .join(format!("{name}.snap.png"));
+    let Ok(baseline) = std::fs::read(&path) else {
+        return png;
+    };
+    let decode = |bytes: &[u8]| {
+        image::load_from_memory_with_format(bytes, image::ImageFormat::Png)
+            .ok()
+            .map(|img| img.into_rgba8())
+    };
+    match (decode(&baseline), decode(&png)) {
+        (Some(old), Some(new)) if old == new => baseline,
+        _ => png,
+    }
 }

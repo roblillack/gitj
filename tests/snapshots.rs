@@ -228,25 +228,13 @@ fn commit_mode_narrow() {
     });
 }
 
-/// Encode a `128×96` PNG: a blue field with a red square at `(sq_x, sq_y)`, so
-/// the two sides of the demo image differ visibly.
-fn demo_png(sq_x: u32, sq_y: u32) -> Vec<u8> {
-    use image::{Rgba, RgbaImage};
-    let mut img = RgbaImage::from_pixel(128, 96, Rgba([0x30, 0x60, 0xC0, 0xFF]));
-    for y in sq_y..(sq_y + 32).min(96) {
-        for x in sq_x..(sq_x + 32).min(128) {
-            img.put_pixel(x, y, Rgba([0xE0, 0x40, 0x40, 0xFF]));
-        }
-    }
-    let mut bytes = Vec::new();
-    image::DynamicImage::ImageRgba8(img)
-        .write_to(
-            &mut std::io::Cursor::new(&mut bytes),
-            image::ImageFormat::Png,
-        )
-        .expect("encode demo png");
-    bytes
-}
+/// The two sides of the demo image: `128×96` PNGs of a blue field with a 32px
+/// red square at (16, 16) and at (64, 40), so they differ visibly. Checked in
+/// rather than encoded at test time because the diff's metadata line prints
+/// each blob's byte size (`673B→672B`), and those sizes would otherwise shift
+/// with every deflate-backend update.
+const LOGO_OLD_PNG: &[u8] = include_bytes!("images/logo_old.png");
+const LOGO_NEW_PNG: &[u8] = include_bytes!("images/logo_new.png");
 
 /// A client whose working tree holds a single modified image, so commit mode
 /// auto-selects it and shows the graphical diff.
@@ -270,14 +258,14 @@ fn image_client() -> GitClient {
         "assets/logo.png",
         ChangeStatus::Modified,
         false,
-        Some(demo_png(16, 16)),
-        Some(demo_png(64, 40)),
+        Some(LOGO_OLD_PNG.to_vec()),
+        Some(LOGO_NEW_PNG.to_vec()),
     );
     GitClient::with_menu_scheme(Rc::new(be), ModifierScheme::Pc)
 }
 
 /// A `128×96` SVG: a blue field with a red circle at `(cx, cy)` — the vector
-/// analogue of [`demo_png`], so the two rasterized sides differ visibly.
+/// analogue of [`LOGO_OLD_PNG`], so the two rasterized sides differ visibly.
 #[cfg(feature = "svg")]
 fn demo_svg(cx: u32, cy: u32) -> Vec<u8> {
     format!(
