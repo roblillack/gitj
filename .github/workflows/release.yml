@@ -10,9 +10,6 @@ on:
       tag:
         description: "Existing release tag to build and attach binaries to (e.g. v0.6.0)"
         required: true
-  # TEMPORARY: builds the binaries on pull requests, too, to try out the build
-  # matrix. They are uploaded as workflow artifacts instead of to a release.
-  pull_request:
 
 permissions:
   contents: write
@@ -125,16 +122,7 @@ jobs:
           cp "target/${{ matrix.target }}/release/gitj${{ matrix.ext }}" "$asset"
           echo "ASSET=$asset" >> "$GITHUB_ENV"
 
-      - name: Upload as workflow artifact
-        if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.ASSET }}
-          path: ${{ env.ASSET }}
-          if-no-files-found: error
-
       - name: Upload to release
-        if: github.event_name != 'pull_request'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
