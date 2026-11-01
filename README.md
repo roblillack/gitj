@@ -74,7 +74,7 @@ diff.
   BMP, TIFF, …) shows the two versions visually instead of a "binary files
   differ" line. Compare them side by side (**2-up**), with a **swipe** split, an
   **onion-skin** cross-fade, or a per-pixel **difference** heatmap — switched
-  from the button row or the **View** menu (**Switch Mode**, Ctrl+M), with a
+  from the row of mode buttons or the **View** menu (**Switch Mode**, Ctrl+M), with a
   slider driving the swipe / onion position. **Before** / **After Image**
   (Ctrl+Left / Ctrl+Right) show just the old / new side full size, and **Next** /
   **Previous Image** (Ctrl+N / Ctrl+P) step between the image files in the active
@@ -142,6 +142,10 @@ diff.
   focused list or scroll the diff.
 * Mouse-wheel and trackpad scrolling in every list and diff pane, under the
   pointer, without touching the selection.
+* **Dark mode**, following the system's light / dark appearance and switching
+  over live when it changes. The diff, the history graph and the ref badges
+  each have a dark palette of their own. `SAUDADE_THEME=dark` (or `light`)
+  overrides the system.
 
 ### Keyboard shortcuts
 
@@ -185,7 +189,8 @@ abstraction, which keeps everything testable without a live repository.
 * **Pixel snapshots** (`tests/snapshots.rs`) render the real UI through
   saudade's offscreen `MockBackend` at 1.0× against the
   in-memory `FixtureBackend` and bundled DejaVu fonts, comparing PNG bytes
-  with `insta`. Regenerate with `INSTA_UPDATE=always cargo test --test
+  with `insta`. The `*_dark` snapshots paint the same screens with the dark
+  theme. Regenerate with `INSTA_UPDATE=always cargo test --test
   snapshots`, then review with `cargo insta review`.
 * **`tests/git2_backend.rs`** builds a throwaway repository with fixed
   signatures/timestamps and reads it back through `Git2Backend`, so the live

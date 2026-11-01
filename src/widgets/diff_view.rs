@@ -22,23 +22,10 @@ use saudade::{
 };
 
 use crate::backend::{Diff, DiffLineKind, is_change_line};
+use crate::widgets::palette::Palette;
 
 const TEXT_PAD_X: i32 = 4;
 const TEXT_PAD_Y: i32 = 2;
-
-// Diff palette — readable on the sunken white field.
-const ADD_BG: Color = Color::rgb(0xDC, 0xFF, 0xDC);
-const ADD_FG: Color = Color::rgb(0x00, 0x64, 0x00);
-const DEL_BG: Color = Color::rgb(0xFF, 0xDC, 0xDC);
-const DEL_FG: Color = Color::rgb(0x90, 0x00, 0x00);
-const HUNK_BG: Color = Color::rgb(0xE2, 0xE8, 0xFF);
-const HUNK_FG: Color = Color::rgb(0x00, 0x00, 0x80);
-const COMMIT_BG: Color = Color::rgb(0xFF, 0xF6, 0xCC);
-const COMMIT_FG: Color = Color::rgb(0x40, 0x30, 0x00);
-const FILE_BG: Color = Color::rgb(0xE6, 0xE6, 0xE6);
-const FILE_FG: Color = Color::rgb(0x00, 0x00, 0x00);
-const META_FG: Color = Color::rgb(0x80, 0x80, 0x80);
-const CONTEXT_FG: Color = Color::rgb(0x20, 0x20, 0x20);
 
 // Selection chrome. The overlay is a 50%-coverage checkerboard of `SEL_OVERLAY`
 // stippled over the already-painted diff — the toolkit has no alpha-blended
@@ -416,7 +403,7 @@ impl Widget for DiffView {
         self.sync_scrollbar();
         let text = self.text_area();
         let merged = self.merged();
-        painter.fill_rect(text, Color::WHITE);
+        painter.fill_rect(text, theme.background);
         painter.sunken_bevel_merged(text, merged, theme.highlight, theme.shadow);
         painter.stroke_rect_merged(text, merged, theme.border);
 
@@ -438,7 +425,7 @@ impl Widget for DiffView {
                 break;
             };
             let y = text_y0 + row_offset as i32 * line_h;
-            let (fg, bg) = colors_for(line.kind);
+            let (fg, bg) = colors_for(line.kind, theme);
             if let Some(bg) = bg {
                 // Full field width; the frame clip trims it to the interior.
                 painter.fill_rect(Rect::new(text.x, y, text.w, line_h), bg);
@@ -698,15 +685,19 @@ fn is_selectable(kind: DiffLineKind) -> bool {
 }
 
 /// Foreground color and optional row background tint for a diff line kind.
-fn colors_for(kind: DiffLineKind) -> (Color, Option<Color>) {
+fn colors_for(kind: DiffLineKind, theme: &Theme) -> (Color, Option<Color>) {
+    let palette = Palette::for_theme(theme);
     match kind {
-        DiffLineKind::CommitHeader => (COMMIT_FG, Some(COMMIT_BG)),
-        DiffLineKind::Addition => (ADD_FG, Some(ADD_BG)),
-        DiffLineKind::Deletion => (DEL_FG, Some(DEL_BG)),
-        DiffLineKind::HunkHeader => (HUNK_FG, Some(HUNK_BG)),
-        DiffLineKind::FileHeader => (FILE_FG, Some(FILE_BG)),
-        DiffLineKind::Meta => (META_FG, None),
-        DiffLineKind::Context => (CONTEXT_FG, None),
+        DiffLineKind::CommitHeader => (palette.commit_fg, Some(palette.commit_bg)),
+        DiffLineKind::Addition => (palette.add_fg, Some(palette.add_bg)),
+        DiffLineKind::Deletion => (palette.del_fg, Some(palette.del_bg)),
+        DiffLineKind::HunkHeader => (palette.hunk_fg, Some(palette.hunk_bg)),
+        // The neutral shades sit between the field and its text, so they
+        // follow the theme as they are: a light-gray band and gray / near-black
+        // text on the white field, their mirror images on the dark one.
+        DiffLineKind::FileHeader => (theme.text, Some(theme.background.mix(theme.text, 0.098))),
+        DiffLineKind::Meta => (theme.text.mix(theme.background, 0.5), None),
+        DiffLineKind::Context => (theme.text.mix(theme.background, 0.125), None),
     }
 }
 

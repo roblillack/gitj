@@ -11,7 +11,7 @@
 #![allow(dead_code)]
 
 use saudade::mock::MockBackend;
-use saudade::{Event, Font, Widget};
+use saudade::{Event, Font, Theme, Widget};
 
 pub fn sans_font() -> Font {
     Font::from_sans_bytes(include_bytes!("../fonts/DejaVuSans.ttf").to_vec())
@@ -33,7 +33,16 @@ pub fn snapshot<F>(name: &str, width: i32, height: i32, mut build: F)
 where
     F: FnMut() -> Box<dyn Widget>,
 {
-    snapshot_one(name, width, height, build(), &[]);
+    snapshot_one(name, width, height, &Theme::windows_31(), build(), &[]);
+}
+
+/// Like [`snapshot`] but painted with `theme` — the dark one, say, as the app
+/// does while the system is in dark mode.
+pub fn snapshot_themed<F>(name: &str, width: i32, height: i32, theme: &Theme, mut build: F)
+where
+    F: FnMut() -> Box<dyn Widget>,
+{
+    snapshot_one(name, width, height, theme, build(), &[]);
 }
 
 /// Like [`snapshot`] but feeds a sequence of synthetic events into the freshly-
@@ -45,17 +54,41 @@ where
     F: FnMut() -> Box<dyn Widget>,
     E: Fn() -> Vec<Event>,
 {
-    snapshot_one(name, width, height, build(), &events());
+    snapshot_one(
+        name,
+        width,
+        height,
+        &Theme::windows_31(),
+        build(),
+        &events(),
+    );
+}
+
+/// [`snapshot_with_events`] painted with `theme`.
+pub fn snapshot_with_events_themed<F, E>(
+    name: &str,
+    width: i32,
+    height: i32,
+    theme: &Theme,
+    mut build: F,
+    events: E,
+) where
+    F: FnMut() -> Box<dyn Widget>,
+    E: Fn() -> Vec<Event>,
+{
+    snapshot_one(name, width, height, theme, build(), &events());
 }
 
 fn snapshot_one(
     name: &str,
     width: i32,
     height: i32,
+    theme: &Theme,
     mut widget: Box<dyn Widget>,
     events: &[Event],
 ) {
     let backend = MockBackend::new(width, height)
+        .with_theme(theme.clone())
         .with_scale(SCALE)
         .with_sans_font(sans_font())
         .with_mono_font(mono_font());

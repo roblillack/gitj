@@ -3,16 +3,19 @@
 //! Shown in place of [`DiffView`](crate::widgets::DiffView) when the selected
 //! file is a raster image (see [`crate::imagediff::is_image_path`]). It decodes
 //! the two sides and offers the same comparison modes as the author's `imgap`
-//! CLI — 2-up, swipe, onion skin, difference, and single left/right — selected
-//! from a row of buttons along the bottom, with a slider driving the swipe /
-//! onion-skin position. The image floats on the same sunken white field the
-//! text diff uses, over a transparency checkerboard.
+//! CLI — 2-up, swipe, onion skin, difference, and single left/right — picked
+//! from a [`ButtonGroup`] along the bottom, with a slider driving the swipe /
+//! onion-skin position. The image floats on the same sunken field the text
+//! diff uses, over a transparency checkerboard.
 //!
-//! Like [`DiffView`] this is a self-contained widget: it embeds no child
-//! widgets, hand-drawing its buttons and slider and tracking their hit-rects,
-//! so the cross-pane wiring in [`crate::ui`] stays simple.
+//! Like [`DiffView`] this is one widget to the cross-pane wiring in
+//! [`crate::ui`]: it owns the mode buttons itself, forwarding pointer events to
+//! them, and hand-draws its slider.
 
-use saudade::{Color, Event, EventCtx, Merged, MouseButton, Painter, Point, Rect, Theme, Widget};
+use saudade::{
+    ButtonGroup, Color, Event, EventCtx, FontFamily, Merged, MouseButton, Painter, Point, Rect,
+    Theme, Widget,
+};
 
 use crate::imagediff::{CompareMode, ImageComparison};
 
@@ -23,15 +26,8 @@ const META_H: i32 = 18;
 const BTN_H: i32 = 22;
 /// Height of the slider row above the buttons (present only for slider modes).
 const SLIDER_H: i32 = 16;
-/// Gap between adjacent mode buttons.
-const BTN_GAP: i32 = 3;
-
-/// Backdrop behind the centered image (the letterbox area). Matches the field
-/// so an aspect-fit image just floats on white.
-const LETTERBOX: Color = Color::WHITE;
-const META_FG: Color = Color::rgb(0x40, 0x40, 0x40);
-/// Filled portion of the slider trough.
-const SLIDER_FILL: Color = Color::rgb(0x00, 0x00, 0x80);
+/// Room around a mode button's label, on top of the widest label's width.
+const BTN_LABEL_PAD: i32 = 14;
 
 /// A graphical comparison of the two versions of an image file.
 pub struct ImageDiffView {
@@ -43,8 +39,10 @@ pub struct ImageDiffView {
     /// Swipe / onion-skin position, 0..1.
     slider: f32,
     font_size: f32,
-    /// Mode-button hit-rects from the last paint, for event hit-testing.
-    button_rects: Vec<(CompareMode, Rect)>,
+    /// One button per [`CompareMode::ALL`] entry, the current mode selected.
+    modes: ButtonGroup,
+    /// Width of one mode button, sized to the widest label at the last paint.
+    mode_btn_w: i32,
     dragging_slider: bool,
     /// A drag on the image body is steering the slider (swipe / onion modes).
     dragging_image: bool,
@@ -59,7 +57,9 @@ impl ImageDiffView {
             last_compare_mode: CompareMode::TwoUp,
             slider: 0.5,
             font_size: 11.0,
-            button_rects: Vec::new(),
+            modes: ButtonGroup::horizontal(Rect::new(0, 0, 0, 0))
+                .with_buttons(CompareMode::ALL.map(CompareMode::label)),
+            mode_btn_w: 0,
             dragging_slider: false,
             dragging_image: false,
         }
@@ -150,10 +150,13 @@ impl ImageDiffView {
         Rect::new(t.x, t.y - 6, t.w, t.h + 12)
     }
 
-    /// The mode-button row along the bottom.
-    fn button_row(&self) -> Rect {
+    /// The mode buttons, along the bottom-left: each as wide as the widest
+    /// label needs, neighbours sharing their border, cut to the pane's width.
+    fn modes_rect(&self) -> Rect {
         let inner = self.inner();
-        Rect::new(inner.x, inner.bottom() - BTN_H, inner.w, BTN_H)
+        let n = CompareMode::ALL.len() as i32;
+        let w = (n * (self.mode_btn_w - 1) + 1).min(inner.w);
+        Rect::new(inner.x, inner.bottom() - BTN_H, w, BTN_H)
     }
 
     /// Map an x coordinate within `track` to a 0..1 slider value.
@@ -170,6 +173,20 @@ impl ImageDiffView {
         self.mode = mode;
         if !mode.is_single() {
             self.last_compare_mode = mode;
+        }
+        self.modes
+            .set_selected(CompareMode::ALL.iter().position(|&m| m == mode));
+    }
+
+    /// Hand `event` to the mode buttons, and switch to the mode they now have
+    /// selected if a click picked another one.
+    fn forward_to_modes(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.modes.event(event, ctx);
+        if let Some(mode) = self.modes.selected().map(|i| CompareMode::ALL[i])
+            && mode != self.mode
+        {
+            self.select_mode(mode);
+            ctx.request_paint();
         }
     }
 
@@ -189,17 +206,9 @@ impl ImageDiffView {
         });
     }
 
-    /// Handle a press at `pos`; returns whether it was consumed.
+    /// Handle a press at `pos` on the slider or the image; returns whether it
+    /// was consumed.
     fn press(&mut self, pos: Point) -> bool {
-        if let Some((mode, _)) = self
-            .button_rects
-            .iter()
-            .find(|(_, r)| r.contains(pos))
-            .copied()
-        {
-            self.select_mode(mode);
-            return true;
-        }
         if self.mode.uses_slider() {
             let track = self.slider_hit();
             if track.contains(pos) {
@@ -217,7 +226,7 @@ impl ImageDiffView {
         false
     }
 
-    fn paint_meta(&self, painter: &mut Painter) {
+    fn paint_meta(&self, painter: &mut Painter, theme: &Theme) {
         let Some(cmp) = &self.comparison else {
             return;
         };
@@ -227,13 +236,15 @@ impl ImageDiffView {
         }
         let r = self.meta_rect();
         let y = r.y + (r.h - self.font_size as i32) / 2 - 1;
-        painter.text(r.x, y, meta, self.font_size, META_FG);
+        painter.text(r.x, y, meta, self.font_size, meta_color(theme));
     }
 
     /// Blit the composed comparison, centered in the image area.
-    fn paint_image(&mut self, painter: &mut Painter) {
+    fn paint_image(&mut self, painter: &mut Painter, theme: &Theme) {
         let area = self.image_area();
-        painter.fill_rect(area, LETTERBOX);
+        // The letterbox matches the field, so an aspect-fit image just floats
+        // on it.
+        painter.fill_rect(area, theme.background);
         if area.w <= 0 || area.h <= 0 {
             return;
         }
@@ -259,7 +270,7 @@ impl ImageDiffView {
             return;
         }
         let track = self.slider_track();
-        painter.fill_rect(track, Color::WHITE);
+        painter.fill_rect(track, theme.background);
         painter.sunken_bevel(track, theme.highlight, theme.shadow);
         painter.stroke_rect(track, theme.border);
         // Filled portion up to the thumb.
@@ -267,7 +278,7 @@ impl ImageDiffView {
         if fill_w > 0 {
             painter.fill_rect(
                 Rect::new(track.x + 1, track.y + 1, fill_w, track.h - 2),
-                SLIDER_FILL,
+                theme.highlight_bg,
             );
         }
         // Thumb.
@@ -278,29 +289,36 @@ impl ImageDiffView {
         // Percentage readout.
         let pct = format!("{:>3}%", (self.slider * 100.0).round() as i32);
         let pr = Rect::new(track.right() + PAD, track.y - 5, 36, 16);
-        painter.text_centered(pr, &pct, self.font_size - 1.0, META_FG);
+        painter.text_centered(pr, &pct, self.font_size - 1.0, meta_color(theme));
     }
 
-    fn paint_buttons(&mut self, painter: &mut Painter, theme: &Theme) {
-        self.button_rects.clear();
-        let row = self.button_row();
-        let mut x = row.x;
-        for mode in CompareMode::ALL {
-            let label = mode.label();
-            let w = painter.measure_text(label, self.font_size).w + 14;
-            let brect = Rect::new(x, row.y, w, BTN_H);
-            let active = mode == self.mode;
-            painter.button(brect, theme, active, false);
-            let label_rect = if active {
-                Rect::new(brect.x + 1, brect.y + 1, brect.w, brect.h)
-            } else {
-                brect
-            };
-            painter.text_centered(label_rect, label, self.font_size, theme.text);
-            self.button_rects.push((mode, brect));
-            x += w + BTN_GAP;
-        }
+    /// Size the mode buttons to the widest label, set in the face a button
+    /// draws it in, and place them.
+    fn paint_modes(&mut self, painter: &mut Painter, theme: &Theme) {
+        let label_w = CompareMode::ALL
+            .iter()
+            .map(|m| {
+                painter
+                    .measure_text_styled(
+                        m.label(),
+                        theme.font_size,
+                        FontFamily::Sans,
+                        theme.button_style,
+                    )
+                    .w
+            })
+            .max()
+            .unwrap_or(0);
+        self.mode_btn_w = label_w + BTN_LABEL_PAD;
+        self.modes.layout(self.modes_rect());
+        self.modes.paint(painter, theme);
     }
+}
+
+/// The muted text of the metadata line and the slider's readout: a quarter of
+/// the way from the theme's text toward its background.
+fn meta_color(theme: &Theme) -> Color {
+    theme.text.mix(theme.background, 0.25)
 }
 
 impl Widget for ImageDiffView {
@@ -310,22 +328,31 @@ impl Widget for ImageDiffView {
 
     fn paint(&mut self, painter: &mut Painter, theme: &Theme) {
         let field = self.field();
-        painter.fill_rect(field, Color::WHITE);
+        painter.fill_rect(field, theme.background);
         painter.sunken_bevel(field, theme.highlight, theme.shadow);
         painter.stroke_rect(field, theme.border);
 
         // Clip to the frame's interior so content stops on exactly the border
         // line's device pixels at fractional scales.
         let saved = painter.push_clip_frame(field, 1, Merged::NONE);
-        self.paint_meta(painter);
-        self.paint_image(painter);
+        self.paint_meta(painter, theme);
+        self.paint_image(painter, theme);
         self.paint_slider(painter, theme);
-        self.paint_buttons(painter, theme);
+        self.paint_modes(painter, theme);
         painter.restore_clip(saved);
     }
 
     fn event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        // A press on a mode button is the group's until it is released.
+        if self.modes.captures_pointer() {
+            self.forward_to_modes(event, ctx);
+            return;
+        }
         match event {
+            Event::PointerDown { pos, .. } if self.modes.bounds().contains(*pos) => {
+                ctx.request_focus();
+                self.forward_to_modes(event, ctx);
+            }
             Event::PointerDown {
                 pos,
                 button: MouseButton::Left,
@@ -361,7 +388,7 @@ impl Widget for ImageDiffView {
     }
 
     fn captures_pointer(&self) -> bool {
-        self.dragging_slider || self.dragging_image
+        self.dragging_slider || self.dragging_image || self.modes.captures_pointer()
     }
 
     fn focusable(&self) -> bool {
@@ -415,17 +442,20 @@ mod tests {
         (be, v)
     }
 
+    /// The center of `mode`'s button, as the group lays it out: the buttons
+    /// split its width evenly.
+    fn mode_button_center(v: &ImageDiffView, mode: CompareMode) -> Point {
+        let r = v.modes.bounds();
+        let n = CompareMode::ALL.len() as i32;
+        let i = CompareMode::ALL.iter().position(|&m| m == mode).unwrap() as i32;
+        let edge = |i: i32| r.x + i * (r.w - 1) / n;
+        Point::new((edge(i) + edge(i + 1)) / 2, r.y + r.h / 2)
+    }
+
     #[test]
     fn clicking_a_mode_button_selects_it() {
         let (be, mut v) = view();
-        // Find the "Diff" (difference) button rect placed at paint.
-        let (_, rect) = v
-            .button_rects
-            .iter()
-            .find(|(m, _)| *m == CompareMode::Difference)
-            .copied()
-            .expect("difference button laid out");
-        let center = Point::new(rect.x + rect.w / 2, rect.y + rect.h / 2);
+        let center = mode_button_center(&v, CompareMode::Difference);
         be.dispatch(
             &mut v,
             &Event::PointerDown {
@@ -434,7 +464,27 @@ mod tests {
                 modifiers: Modifiers::default(),
             },
         );
+        assert!(v.captures_pointer(), "the press belongs to the buttons");
+        assert_eq!(v.mode(), CompareMode::TwoUp, "not yet, on the press");
+        be.dispatch(
+            &mut v,
+            &Event::PointerUp {
+                pos: center,
+                button: MouseButton::Left,
+                modifiers: Modifiers::default(),
+            },
+        );
         assert_eq!(v.mode(), CompareMode::Difference);
+        assert!(!v.captures_pointer());
+    }
+
+    #[test]
+    fn the_mode_buttons_follow_the_view_menu() {
+        let (_be, mut v) = view();
+        v.cycle_mode();
+        assert_eq!(v.modes.selected(), Some(1), "Swipe");
+        v.show_side(false);
+        assert_eq!(v.modes.selected(), Some(5), "Right");
     }
 
     #[test]

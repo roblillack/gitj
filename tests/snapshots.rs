@@ -5,7 +5,7 @@ mod common;
 
 use std::rc::Rc;
 
-use common::{snapshot, snapshot_with_events};
+use common::{snapshot, snapshot_themed, snapshot_with_events, snapshot_with_events_themed};
 use journey::backend::{
     ChangeStatus, Diff, DiffLine, DiffLineKind, FixtureBackend, RefKind, RefLabel,
 };
@@ -13,7 +13,7 @@ use journey::ui::GitClient;
 use journey::widgets::{CommitList, CommitRow, DiffView, compute_graph};
 use saudade::{
     Color, Container, Event, Key, ModifierScheme, Modifiers, MouseButton, NamedKey, Point, Rect,
-    Widget,
+    Theme, Widget,
 };
 
 const W: i32 = 760;
@@ -939,6 +939,88 @@ fn commit_list_graph() {
         Box::new(
             Container::new(560, 130)
                 .with_background(Color::LIGHT_GRAY)
+                .add(SharedWidget(Box::new(list))),
+        )
+    });
+}
+
+// ------------------------------------------------------------------ Dark mode
+//
+// The same screens painted with the theme the app switches to while the system
+// is in dark mode: the chrome comes from saudade, the diff tints, graph lanes
+// and ref badges from gitj's dark palette.
+
+fn dark() -> Theme {
+    Theme::windows_31_dark()
+}
+
+/// The browse screen after dark: graph lanes, ref badges and a whole-commit
+/// diff (commit header, file header, hunk, additions).
+#[test]
+fn main_screen_dark() {
+    snapshot_themed("main_screen_dark", W, H, &dark(), || {
+        let mut client = sample_client();
+        client.focus_first();
+        Box::new(client)
+    });
+}
+
+/// The commit screen after dark, with a line range selected in the diff so the
+/// stippled overlay, the marching ants and the floating Stage button show.
+#[test]
+fn commit_mode_diff_range_stage_dark() {
+    snapshot_with_events_themed(
+        "commit_mode_diff_range_stage_dark",
+        CW,
+        CH,
+        &dark(),
+        || {
+            let mut client = sample_client();
+            client.enter_commit_mode();
+            Box::new(client)
+        },
+        || vec![click(400, 96), motion(400, 110), release(400, 110)],
+    );
+}
+
+/// The graphical image diff after dark: the image letterboxed on the dark
+/// field, the mode buttons below.
+#[test]
+fn commit_mode_image_diff_dark() {
+    snapshot_themed("commit_mode_image_diff_dark", CW, CH, &dark(), || {
+        let mut client = image_client();
+        client.enter_commit_mode();
+        client.focus_first();
+        Box::new(client)
+    });
+}
+
+/// Every diff line kind after dark.
+#[test]
+fn diff_view_all_kinds_dark() {
+    let theme = dark();
+    snapshot_themed("diff_view_all_kinds_dark", 460, 220, &theme, || {
+        let mut view = DiffView::new(Rect::new(8, 8, 444, 204));
+        view.set_diff(sample_diff());
+        Box::new(
+            Container::new(460, 220)
+                .with_background(theme.face)
+                .add(SharedWidget(Box::new(view))),
+        )
+    });
+}
+
+/// Every ref-badge kind after dark, with a focused selection on the first row.
+#[test]
+fn commit_list_focused_dark() {
+    let theme = dark();
+    snapshot_themed("commit_list_focused_dark", 620, 90, &theme, || {
+        let mut list = CommitList::new(Rect::new(8, 8, 604, 74)).with_rows(badge_rows());
+        list.set_selected(Some(0));
+        list.set_focused(true);
+        Box::new(
+            Container::new(620, 90)
+                .with_background(theme.face)
                 .add(SharedWidget(Box::new(list))),
         )
     });

@@ -11,7 +11,7 @@
 //! the git-gui commit screen are then just two different sets of placements
 //! (see [`crate::widgets::layout`]).
 
-use saudade::{Color, Event, EventCtx, Painter, PopupRequest, Rect, Theme, Widget};
+use saudade::{Event, EventCtx, Painter, PopupRequest, Rect, Theme, Widget};
 
 /// Computes a child's rectangle from the container's bounds.
 type Place = Box<dyn Fn(Rect) -> Rect>;
@@ -23,7 +23,8 @@ struct Child {
 
 pub struct Shell {
     bounds: Rect,
-    background: Option<Color>,
+    /// Whether to fill the gaps between the panes with the theme's face color.
+    background: bool,
     children: Vec<Child>,
     overlays: Vec<Box<dyn Widget>>,
     captured: Option<usize>,
@@ -34,7 +35,7 @@ impl Shell {
     pub fn new() -> Self {
         Self {
             bounds: Rect::new(0, 0, 0, 0),
-            background: Some(Color::LIGHT_GRAY),
+            background: true,
             children: Vec::new(),
             overlays: Vec::new(),
             captured: None,
@@ -46,7 +47,7 @@ impl Shell {
     /// through the gaps between panes — the git-gui-style commit screen floats
     /// its widgets on the patterned background rather than a flat fill.
     pub fn no_background(mut self) -> Self {
-        self.background = None;
+        self.background = false;
         self
     }
 
@@ -186,8 +187,8 @@ impl Widget for Shell {
     }
 
     fn paint(&mut self, painter: &mut Painter, theme: &Theme) {
-        if let Some(background) = self.background {
-            painter.fill_rect(self.bounds, background);
+        if self.background {
+            painter.fill_rect(self.bounds, theme.face);
         }
         for child in &mut self.children {
             child.widget.paint(painter, theme);
