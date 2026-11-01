@@ -30,6 +30,9 @@ const DOUBLE_CLICK_MS: u64 = 400;
 /// Logical width of one graph lane.
 const LANE_W: i32 = 14;
 
+/// Logical radius of a commit dot, out to its edge: 7 pixels across at 1.0x.
+const DOT_RADIUS: f32 = 3.5;
+
 /// The gitk-style ink of graph lane `col` (the palette wraps).
 fn lane_color(palette: &Palette, col: usize) -> Color {
     palette.lanes[col % palette.lanes.len()]
@@ -294,7 +297,8 @@ impl Widget for CommitList {
             if let Some(graph) = &self.graph
                 && let Some(grow) = graph.rows.get(row)
             {
-                draw_graph_row(painter, palette, grow, text_x, y);
+                let gutter = Rect::new(text_x, y, graph_w, ROW_HEIGHT);
+                draw_graph_row(painter, palette, grow, gutter);
             }
 
             // Fixed-width date column at the right, author column to its left;
@@ -446,51 +450,61 @@ fn date_col_width(painter: &Painter, font_size: f32) -> i32 {
     painter.measure_text(&template, font_size).w
 }
 
-/// Paint one row of the commit graph in the left gutter starting at `gutter_x`.
-fn draw_graph_row(painter: &mut Painter, palette: &Palette, row: &GraphRow, gutter_x: i32, y: i32) {
-    let lane_x = |col: usize| gutter_x + col as i32 * LANE_W + LANE_W / 2;
-    let top = y;
-    let center = y + ROW_HEIGHT / 2;
-    let bottom = y + ROW_HEIGHT;
+/// Paint one row of the commit graph into `gutter`, the row's slice of the
+/// left-hand graph column.
+///
+/// The graph is drawn in device pixels, not logical ones. Built out of logical
+/// pixels it was the 1.0x art blown up: at 2x every diagonal and every dot
+/// stair-stepped in 2×2 blocks, and at fractional
+/// scales a line came out one device pixel wide in one place and two in the
+/// next, depending on where its logical pixels happened to snap. Here every
+/// line is a whole [`Painter::chrome_unit`] thick — the same width as the
+/// field's border and the UI's other thin lines — and steps at the display's
+/// own resolution, and the dot is a circle rasterized at its scaled size.
+///
+/// Each point still sits where the logical pixel it replaces would have
+/// snapped, measured from the gutter's snapped corner, and the row's bottom is
+/// the next row's top, so lanes run on unbroken from row to row.
+fn draw_graph_row(painter: &mut Painter, palette: &Palette, row: &GraphRow, gutter: Rect) {
+    let scale = painter.scale();
+    let unit = painter.chrome_unit();
+    let radius = DOT_RADIUS * scale;
+    // A logical length in device pixels, rounded the way the painter snaps.
+    let device = |logical: i32| (logical as f32 * scale).round() as i32;
 
-    // Top half: a lane at the top edge curving in to the row center. Color by
-    // the upper lane so a line keeps its color along its length.
-    for &(from, to) in &row.top {
-        draw_line(
-            painter,
-            lane_x(from),
-            top,
-            lane_x(to),
-            center,
-            lane_color(palette, from),
-        );
-    }
-    // Bottom half: from the center down to a lane at the bottom edge. Color by
-    // the lower lane (the lane the segment becomes).
-    for &(from, to) in &row.bottom {
-        draw_line(
-            painter,
-            lane_x(from),
-            center,
-            lane_x(to),
-            bottom,
-            lane_color(palette, to),
-        );
-    }
-    draw_dot(
-        painter,
-        lane_x(row.node_col),
-        center,
-        lane_color(palette, row.node_col),
-    );
+    painter.physical(gutter, |p, gutter| {
+        let lane_x = |col: usize| gutter.x + device(col as i32 * LANE_W + LANE_W / 2);
+        let top = gutter.y;
+        let center = gutter.y + device(ROW_HEIGHT / 2);
+        let bottom = gutter.bottom();
+
+        // Top half: a lane at the top edge curving in to the row center. Color
+        // by the upper lane so a line keeps its color along its length.
+        for &(from, to) in &row.top {
+            let color = lane_color(palette, from);
+            draw_line(p, (lane_x(from), top), (lane_x(to), center), unit, color);
+        }
+        // Bottom half: from the center down to a lane at the bottom edge. Color
+        // by the lower lane (the lane the segment becomes).
+        for &(from, to) in &row.bottom {
+            let color = lane_color(palette, to);
+            draw_line(p, (lane_x(from), center), (lane_x(to), bottom), unit, color);
+        }
+        let color = lane_color(palette, row.node_col);
+        draw_dot(p, (lane_x(row.node_col), center), unit, radius, color);
+    });
 }
 
-/// Bresenham line via single logical pixels (crisp at any DPI). Straight
-/// verticals use the faster `v_line`.
-fn draw_line(painter: &mut Painter, x0: i32, y0: i32, x1: i32, y1: i32, color: Color) {
+/// A line from `from` to `to`, both ends included, drawn `unit` device pixels
+/// thick by stamping a `unit`-square pen along a Bresenham path. Coordinates
+/// are device pixels, for a painter inside a [`Painter::physical`] pass; the
+/// pen hangs right of and below each point, as a logical pixel does from the
+/// device pixel its corner snaps to. Straight verticals are a single fill.
+fn draw_line(painter: &mut Painter, from: (i32, i32), to: (i32, i32), unit: i32, color: Color) {
+    let ((x0, y0), (x1, y1)) = (from, to);
     if x0 == x1 {
-        let (a, b) = if y0 <= y1 { (y0, y1) } else { (y1, y0) };
-        painter.v_line(x0, a, b - a + 1, color);
+        let (a, b) = (y0.min(y1), y0.max(y1));
+        painter.fill_rect(Rect::new(x0, a, unit, b - a + unit), color);
         return;
     }
     let dx = (x1 - x0).abs();
@@ -500,7 +514,7 @@ fn draw_line(painter: &mut Painter, x0: i32, y0: i32, x1: i32, y1: i32, color: C
     let mut err = dx + dy;
     let (mut x, mut y) = (x0, y0);
     loop {
-        painter.pixel(x, y, color);
+        painter.fill_rect(Rect::new(x, y, unit, unit), color);
         if x == x1 && y == y1 {
             break;
         }
@@ -516,13 +530,29 @@ fn draw_line(painter: &mut Painter, x0: i32, y0: i32, x1: i32, y1: i32, color: C
     }
 }
 
-/// A small filled commit dot.
-fn draw_dot(painter: &mut Painter, cx: i32, cy: i32, color: Color) {
-    let r = 3;
-    for dy in -r..=r {
-        // Half-width of the disc at this row (circle of radius r).
-        let hw = ((r * r - dy * dy) as f32).sqrt().round() as i32;
-        painter.h_line(cx - hw, cy + dy, hw * 2 + 1, color);
+/// A filled commit dot of `radius` device pixels, centered on the `unit`-thick
+/// pen [`draw_line`] puts down at device point `at` — so it sits squarely on
+/// the lane line whether that is an odd number of device pixels wide (centered
+/// on a pixel) or an even one (centered between two). A pixel is in when its
+/// center is inside the circle.
+fn draw_dot(painter: &mut Painter, at: (i32, i32), unit: i32, radius: f32, color: Color) {
+    let half_unit = unit as f32 / 2.0;
+    let (cx, cy) = (at.0 as f32 + half_unit, at.1 as f32 + half_unit);
+    let first_row = (cy - radius).floor() as i32;
+    let last_row = (cy + radius).ceil() as i32;
+    for y in first_row..=last_row {
+        let dy = y as f32 + 0.5 - cy;
+        let reach_sq = radius * radius - dy * dy;
+        if reach_sq < 0.0 {
+            continue;
+        }
+        // The run of pixels whose centers lie within `reach` of the center.
+        let reach = reach_sq.sqrt();
+        let x0 = (cx - reach - 0.5).ceil() as i32;
+        let x1 = (cx + reach - 0.5).floor() as i32;
+        if x1 >= x0 {
+            painter.fill_rect(Rect::new(x0, y, x1 - x0 + 1, 1), color);
+        }
     }
 }
 
@@ -562,6 +592,7 @@ fn draw_badge(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use saudade::Container;
     use saudade::mock::MockBackend;
 
     const W: i32 = 320;
@@ -610,5 +641,105 @@ mod tests {
         let (be, mut list) = long_list();
         be.dispatch(&mut list, &scroll(W + 10, H + 10, 3.0));
         assert_eq!(list.scroll_top(), 0);
+    }
+
+    /// Paint a straight three-commit history, graph attached, at `scale` with
+    /// the list `x` logical pixels in from the window's left edge, and hand back
+    /// the device rows of the middle commit's row band (the one with a lane both
+    /// above and below its dot) along with the lane's color.
+    fn middle_graph_row(scale: f32, x: i32) -> (Vec<Vec<u32>>, Color) {
+        let ids = ["c", "b", "a"];
+        let rows: Vec<CommitRow> = ids
+            .iter()
+            .zip(["b", "a", ""])
+            .map(|(id, parent)| CommitRow {
+                id: id.to_string(),
+                parents: (!parent.is_empty())
+                    .then(|| parent.to_string())
+                    .into_iter()
+                    .collect(),
+                ..CommitRow::default()
+            })
+            .collect();
+        let dag: Vec<_> = rows
+            .iter()
+            .map(|r| (r.id.clone(), r.parents.clone()))
+            .collect();
+        let theme = Theme::windows_31();
+        let be = MockBackend::new(x + W, H)
+            .with_theme(theme.clone())
+            .with_scale(scale);
+        let bounds = Rect::new(x, 0, W, H);
+        let mut list = CommitList::new(bounds).with_rows(rows);
+        list.set_graph(Some(crate::widgets::graph::compute_graph(&dag)));
+        list.layout(bounds);
+        // The backend lays its root out at the window's origin; a container
+        // keeps the list at `x`.
+        let snap = be.render(&mut Container::new(x + W, H).add(list));
+
+        let device = |logical: i32| (logical as f32 * scale).round() as i32;
+        let top = TEXT_PAD_Y + ROW_HEIGHT;
+        let width = snap.width() as usize;
+        let band = (device(top)..device(top + ROW_HEIGHT))
+            .map(|y| snap.pixels()[y as usize * width..][..width].to_vec())
+            .collect();
+        (band, Palette::for_theme(&theme).lanes[0])
+    }
+
+    /// How many of a device row's pixels are `color`.
+    fn ink(row: &[u32], color: Color) -> usize {
+        row.iter().filter(|&&p| p == color.0).count()
+    }
+
+    #[test]
+    fn graph_lines_are_a_whole_chrome_unit_thick_at_any_scale() {
+        // Painted out of logical pixels, a lane was one device pixel wide or
+        // two at 1.5x (two or three at 2.5x), depending on where in the window
+        // its logical pixel happened to snap — so the list is moved across a
+        // few positions too.
+        for (scale, unit) in [
+            (1.0, 1),
+            (1.25, 1),
+            (1.5, 1),
+            (1.75, 2),
+            (2.0, 2),
+            (2.25, 2),
+            (2.5, 2),
+            (3.0, 3),
+        ] {
+            for x in 0..4 {
+                let (band, lane) = middle_graph_row(scale, x);
+                // Away from the dot, which spans the middle 7 logical rows,
+                // the device rows hold nothing but the lane line.
+                let device = |logical: f32| (logical * scale).round() as usize;
+                let line_rows = (0..device(4.0)).chain(device(14.0)..band.len());
+                for y in line_rows {
+                    let n = ink(&band[y], lane);
+                    assert_eq!(n, unit, "{scale}x, list at x={x}: device row {y}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn commit_dots_are_round_and_scale_with_the_display() {
+        // The dot used to be the 1.0x pixel art blown up: 1-pixel nubs on its
+        // top and bottom rows made it taller than its round middle was wide,
+        // and at 2x it was 14 device pixels across but only 10 rows of that.
+        for (scale, unit) in [(1.0, 1), (1.25, 1), (1.5, 1), (2.0, 2), (2.5, 2), (3.0, 3)] {
+            let (band, lane) = middle_graph_row(scale, 0);
+            let dot_rows: Vec<usize> = band
+                .iter()
+                .map(|row| ink(row, lane))
+                .filter(|&n| n > unit)
+                .collect();
+            let across = *dot_rows.iter().max().unwrap();
+            assert_eq!(across, dot_rows.len(), "{scale}x: as tall as it is wide");
+            let design = 2.0 * DOT_RADIUS * scale;
+            assert!(
+                (across as f32 - design).abs() <= 1.0,
+                "{scale}x: {across} device pixels across, want ~{design}",
+            );
+        }
     }
 }

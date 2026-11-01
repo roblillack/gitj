@@ -28,6 +28,10 @@ While pre-1.0, the minor version is bumped for breaking changes.
 - The image diff's mode buttons (2-Up, Swipe, Onion, Diff, Left, Right) are
   now one joined button group, with the current mode pushed in. A click picks
   a mode when the mouse button is released, like any other button. (#27)
+- The history graph is drawn at the screen's own resolution on HiDPI
+  displays. Its lines are an even width all the way along and step smoothly
+  instead of in blocky staircases, and its commit dots are round at every
+  scale, including 100%. (#28)
 - Dialogs word-wrap their message to fit, so the revert / delete confirmations
   and the About box no longer break their text by hand, and a long error
   message from git no longer runs off the side. (#27)
