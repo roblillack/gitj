@@ -2,12 +2,24 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # Builds the binaries for a tag that's already released and attaches them to
+  # it, e.g. to backfill a release cut before the binaries existed or to retry a
+  # failed build: `gh workflow run release.yml -f tag=v0.6.0`.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to build and attach binaries to (e.g. v0.6.0)"
+        required: true
 
 permissions:
   contents: write
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   github-release:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,3 +31,100 @@ jobs:
         with:
           changelog: CHANGELOG.md
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  # Standalone executables, attached to the release as gitj-<os>-<arch>[.exe]
+  # (the winget package installs the Windows ones). Runs once the release
+  # exists; on a manual run github-release is skipped, which mustn't skip this
+  # job too.
+  build:
+    name: ${{ matrix.os }} (${{ matrix.arch }})
+    needs: github-release
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Built on the oldest Ubuntu runners rather than ubuntu-latest: the
+          # binaries need at least the glibc they were linked against, so this
+          # keeps them running on older distributions, too.
+          - os: linux
+            arch: x86_64
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: linux
+            arch: aarch64
+            runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          # Both cross-compiled on the Apple Silicon runner; Xcode's clang
+          # builds libgit2's C sources for either architecture.
+          - os: macos
+            arch: x86_64
+            runner: macos-latest
+            target: x86_64-apple-darwin
+          - os: macos
+            arch: aarch64
+            runner: macos-latest
+            target: aarch64-apple-darwin
+          # Statically link the MSVC C runtime, so the executables don't depend
+          # on VCRUNTIME140.dll / the VC++ Redistributable being installed. Set
+          # here rather than in .cargo/config.toml so manual runs for older tags
+          # get it too. With an explicit --target it only applies to the target,
+          # not to build scripts.
+          - os: windows
+            arch: x86_64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            ext: .exe
+            rustflags: -C target-feature=+crt-static
+          # Cross-compiled on the x64 runner; its Visual Studio install ships
+          # the ARM64 build tools libgit2's C sources need.
+          - os: windows
+            arch: aarch64
+            runner: windows-latest
+            target: aarch64-pc-windows-msvc
+            ext: .exe
+            rustflags: -C target-feature=+crt-static
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      RUSTFLAGS: ${{ matrix.rustflags }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      # Same packages as in ci.yml: saudade's Wayland backends link libwayland
+      # and libxkbcommon, while X11 is loaded via dlopen at runtime.
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev pkg-config
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build (release)
+        run: cargo build --release --locked --bin gitj --target ${{ matrix.target }}
+
+      - name: Prepare binary
+        shell: bash
+        run: |
+          asset="gitj-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}"
+          cp "target/${{ matrix.target }}/release/gitj${{ matrix.ext }}" "$asset"
+          echo "ASSET=$asset" >> "$GITHUB_ENV"
+
+      - name: Upload to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$TAG" "$ASSET" --clobber
