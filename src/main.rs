@@ -6,12 +6,23 @@
 //! screen; `-r`/`--review [<branch>]` starts on the branch-review screen,
 //! optionally pre-selecting a branch; `--version` and `--help` print and exit.
 
+// Release builds on Windows are GUI programs rather than console ones: started
+// from Explorer or the Start menu, gitj opens no console window next to its
+// own, and started from a terminal, it hands the prompt straight back. Debug
+// builds stay console programs, so panics and `dbg!` output show up.
+#![cfg_attr(
+    all(windows, not(debug_assertions), not(test)),
+    windows_subsystem = "windows"
+)]
+
 use std::process::ExitCode;
 use std::rc::Rc;
 
 use journey::backend::{Git2Backend, RepoBackend};
 use journey::ui::GitClient;
 use saudade::{App, SvgImage, Theme, WindowConfig, include_svg};
+#[cfg(windows)]
+use windows_sys::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole, FreeConsole};
 
 /// The program icon: the title bar and taskbar on Windows, the window
 /// switcher on X11/Wayland, the dock tile on macOS.
@@ -163,7 +174,38 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Cli {
     }
 }
 
+/// Hooks stdout and stderr up to the terminal gitj was started from, for as
+/// long as it lives. Release builds on Windows start without a console of their
+/// own, so without this, `--help`, `--version` and the startup errors would go
+/// nowhere. Attaching fails harmlessly when there is no terminal (started from
+/// Explorer) or gitj has a console already (debug builds). Elsewhere, this does
+/// nothing.
+struct ParentConsole {
+    #[cfg(windows)]
+    attached: bool,
+}
+
+impl ParentConsole {
+    fn attach() -> Self {
+        ParentConsole {
+            #[cfg(windows)]
+            attached: unsafe { AttachConsole(ATTACH_PARENT_PROCESS) } != 0,
+        }
+    }
+}
+
+impl Drop for ParentConsole {
+    fn drop(&mut self) {
+        #[cfg(windows)]
+        if self.attached {
+            unsafe { FreeConsole() };
+        }
+    }
+}
+
 fn main() -> ExitCode {
+    let console = ParentConsole::attach();
+
     let (path, mode) = match parse_args(std::env::args().skip(1)) {
         Cli::Run { path, mode } => (path, mode),
         Cli::Print(text) => {
@@ -210,6 +252,10 @@ fn main() -> ExitCode {
             }
         }
     }
+
+    // Let go of the terminal before the window opens. Still attached, gitj
+    // would be killed along with the terminal, or by a Ctrl+C typed there.
+    drop(console);
 
     App::new(
         WindowConfig::new(title, WINDOW_W, WINDOW_H)
