@@ -10,6 +10,8 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.6.1] - 2026-11-01
+
 ### Fixed
 
 - On Windows, gitj no longer opens a console window next to its own when
@@ -223,7 +225,8 @@ While pre-1.0, the minor version is bumped for breaking changes.
 Initial release.
 
 <!-- next-url -->
-[Unreleased]: https://github.com/roblillack/gitj/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/roblillack/gitj/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/roblillack/gitj/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/roblillack/gitj/compare/v0.5.0...v0.6.0
 
 [0.5.0]: https://github.com/roblillack/gitj/compare/v0.4.1...v0.5.0
