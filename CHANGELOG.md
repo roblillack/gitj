@@ -17,23 +17,23 @@ While pre-1.0, the minor version is bumped for breaking changes.
   bands, the history graph's lanes and the ref badges each have a dark
   palette of their own, and every pane takes its field, text and neutral
   shades from the active theme. `SAUDADE_THEME=dark` or `light` overrides the
-  system.
+  system. (#27)
 
 ### Changed
 
 - Updated the GUI library, Saudade, to version 0.8. Besides dark mode, this
   brings dialogs that open over (and stay with) the window they belong to on
   every platform, menus and dropdowns that no longer steal focus from the
-  window, and the right size for windows under Wayland.
+  window, and the right size for windows under Wayland. (#27)
 - The image diff's mode buttons (2-Up, Swipe, Onion, Diff, Left, Right) are
   now one joined button group, with the current mode pushed in. A click picks
-  a mode when the mouse button is released, like any other button.
+  a mode when the mouse button is released, like any other button. (#27)
 - Dialogs word-wrap their message to fit, so the revert / delete confirmations
   and the About box no longer break their text by hand, and a long error
-  message from git no longer runs off the side.
+  message from git no longer runs off the side. (#27)
 - The commit message editor and the search field use ⌘ for copy, cut, paste
   and select all on macOS, and ⌥←/→ to move by word, like the rest of the
-  system.
+  system. (#27)
 
 ## [0.5.0] - 2026-10-24
 
