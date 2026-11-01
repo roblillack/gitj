@@ -718,6 +718,7 @@ dependencies = [
  "insta",
  "resvg",
  "saudade",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

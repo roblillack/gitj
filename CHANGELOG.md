@@ -10,6 +10,13 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ## [Unreleased] - ReleaseDate
 
+### Fixed
+
+- On Windows, gitj no longer opens a console window next to its own when
+  started from Explorer or the Start menu, and no longer blocks the terminal
+  it was started from until it quits. `--help`, `--version` and error messages
+  still show up in the terminal. (#30)
+
 ## [0.6.0] - 2026-11-01
 
 ### Added

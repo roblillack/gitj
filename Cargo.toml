@@ -61,6 +61,11 @@ image = { version = "0.25", default-features = false, features = ["bmp", "gif", 
 # `tiny_skia` rasterizer, so this single dep covers the whole pipeline.
 resvg = { version = "0.47", default-features = false, features = ["text", "raster-images"], optional = true }
 
+# Release builds on Windows start without a console (see main.rs); this lets
+# them borrow the one of the terminal they were started from.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
+
 [dev-dependencies]
 insta = "1"
 # Snapshot tests encode small PNGs to feed the graphical image diff.
